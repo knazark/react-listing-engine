@@ -704,13 +704,6 @@
 	flex: 0 0 clamp(180px, 22vw, 280px);
 }
 
-.rle-filter-bar__end {
-	display: flex;
-	align-items: center;
-	gap: var(--rle-space);
-	margin-left: auto;
-}
-
 @media (max-width: 1023px) {
 	.rle-filter-bar {
 		display: none;
@@ -870,6 +863,26 @@
 	height: 100%;
 	overflow-y: auto;
 	padding: var(--rle-space);
+}
+
+/* Header row at the top of the results column: the result header (title +
+   count) at the left, the optional `toolbarEnd` (sort control, save-search,
+   ...) at the right. Sits ABOVE the list -- moved here from the filter bar so
+   the count/sort read as a list heading, not another filter. Wraps to stack the
+   toolbar under the title on a narrow (split-view) column. */
+.rle-list-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--rle-space);
+	margin-bottom: var(--rle-space);
+}
+
+.rle-list-header__toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--rle-space);
 }
 
 .rle-list-grid {

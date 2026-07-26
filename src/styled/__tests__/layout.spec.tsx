@@ -76,7 +76,7 @@ function renderLayout(mobileAction?: IBottomNavAction) {
 }
 
 describe('StyledListingLayout', () => {
-	it('renders the desktop filter bar with the filter control and result header', async () => {
+	it('renders the desktop filter bar with the filter control, and the result header above the list', async () => {
 		const { container } = renderLayout();
 
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
@@ -84,7 +84,10 @@ describe('StyledListingLayout', () => {
 		const filterBar = container.querySelector('.rle-filter-bar');
 		expect(filterBar).toBeInTheDocument();
 		expect(filterBar).toContainElement(screen.getByLabelText('Query'));
-		expect(filterBar).toContainElement(screen.getByText('2 results'));
+		// The result header moved out of the filter bar into `.rle-list-header`.
+		const listHeader = container.querySelector('.rle-list-header');
+		expect(listHeader).toBeInTheDocument();
+		expect(listHeader).toContainElement(screen.getByText('2 results'));
 	});
 
 	it('drives its filterKey directly on the engine when a `search` box is given', async () => {

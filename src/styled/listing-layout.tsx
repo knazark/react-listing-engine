@@ -30,7 +30,7 @@ export interface IStyledListingLayoutProps {
 	 * it would then render twice. Omitted entirely when not passed.
 	 */
 	search?: { filterKey: string; placeholder?: string };
-	/** Extra content rendered at the end of the desktop filter bar, alongside `ListingResultHeader` (e.g. a sort control). */
+	/** Extra content rendered in `.rle-list-header` (above the list), to the right of `ListingResultHeader` (e.g. a sort control + save-search). */
 	toolbarEnd?: ReactNode;
 	/** Optional bottom-nav action button (e.g. "Add"), forwarded verbatim to `<BottomNav action={...} />`. Omit to render just Filters + the List|Map toggle. */
 	mobileAction?: IBottomNavAction;
@@ -109,11 +109,14 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
  * no Tailwind, no inline styles, no other stylesheet required.
  *
  * STRUCTURE (`.rle-app`):
- * - `.rle-filter-bar` (desktop only, hidden below 768px by CSS): the
- *   optional `Search` slot, `<ListingFilters>` laid out as a wrapping row
- *   (`className="rle-filters-row"`, `groupClassName="rle-filter-group"`),
- *   and a trailing `.rle-filter-bar__end` cluster with `<ListingResultHeader>`
- *   + `toolbarEnd`.
+ * - `.rle-filter-bar` (desktop only, hidden below 1024px by CSS): the
+ *   optional `Search` slot and `<ListingFilters>` laid out as a single
+ *   horizontally-scrolling row (`className="rle-filters-row"`,
+ *   `groupClassName="rle-filter-group"`) with edge fades. The result header +
+ *   `toolbarEnd` are NOT here -- they sit in `.rle-list-header` above the list.
+ * - `.rle-list-header` (top of `.rle-list`): `<ListingResultHeader>` (title +
+ *   count) at the left, `toolbarEnd` (sort control, save-search, ...) at the
+ *   right -- a heading for the results, on every viewport.
  * - `.rle-body.rle-split`: a CSS grid from 768px up (list column floors at
  *   340px, caps at 42%; map takes the rest); below that, a single full-area
  *   panel with exactly one of `.rle-list`/`.rle-map` visible at a time via
@@ -206,11 +209,6 @@ export function StyledListingLayout({
 					)}
 
 					<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
-
-					<div className="rle-filter-bar__end">
-						<ListingResultHeader />
-						{toolbarEnd}
-					</div>
 				</div>
 
 				{/* Fade only on a side with more content off-screen (see `useScrollEdges`). */}
@@ -230,6 +228,10 @@ export function StyledListingLayout({
 				data-mobile-view={mobileView}
 			>
 				<div className="rle-list">
+					<div className="rle-list-header">
+						<ListingResultHeader />
+						{toolbarEnd && <div className="rle-list-header__toolbar">{toolbarEnd}</div>}
+					</div>
 					<ListingList className="rle-list-grid" />
 					<ListingPagination />
 				</div>
