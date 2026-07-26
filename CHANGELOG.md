@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.6.1
+
+### Patch Changes
+
+- `/styled`: fix "Clear all" in the mobile filters sheet -- it cleared each filter by its registry `key`, which no-ops when a filter maps its control to different state fields via `to/fromParams` (e.g. `rent` -> `minRent`/`maxRent`). It now resets via each filter's own `toParams(fromParams({}))`. Also: the mobile Filters button now shows a count badge of how many filters are applied.
+
 ## 0.6.0
 
 ### Minor Changes

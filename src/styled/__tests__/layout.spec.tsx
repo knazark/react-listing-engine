@@ -165,6 +165,50 @@ describe('StyledListingLayout', () => {
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
+	it('"Clear all" resets a filter whose registry key differs from its state field (via toParams)', async () => {
+		const map = new FakeMapProvider();
+		const composed = composeListingProviders<Filters>(
+			withDataset<ListingRow, Filters>({
+				id: 'p',
+				adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
+				marker: { iconUrl: () => '' },
+			}),
+			withFilters<Filters>(reg =>
+				reg.add<string>({
+					// Registry key deliberately != the 'q' STATE field it maps to --
+					// the old clear-by-`def.key` logic would no-op on this.
+					key: 'bedrooms',
+					order: 0,
+					render: QueryControl,
+					toParams: value => ({ q: value || undefined }),
+					fromParams: filters => filters.q ?? '',
+				}),
+			),
+			withMap<Filters>(map),
+			withConfig<Filters>({ debounceMs: 0 }),
+		);
+
+		render(
+			<ListingProvider<ListingRow, Filters> {...composed}>
+				<StyledComponentsProviderWithDefaults>
+					<StyledListingLayout />
+				</StyledComponentsProviderWithDefaults>
+			</ListingProvider>,
+		);
+
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+		// Apply the filter -> only Sunny Loft remains.
+		fireEvent.change(screen.getAllByLabelText('Query')[0], { target: { value: 'sunny' } });
+		await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
+
+		fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+		fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
+
+		// Fix: cleared via `toParams(fromParams({}))` -> `q` is undefined -> both rows return.
+		await waitFor(() => expect(screen.getByText('Cozy Studio')).toBeInTheDocument());
+		expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+	});
+
 	it('the List|Map toggle flips data-mobile-view on the body region', async () => {
 		const { container } = renderLayout();
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());

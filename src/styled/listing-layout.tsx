@@ -132,9 +132,20 @@ export function StyledListingLayout({
 	}, [engine, autoFetch]);
 
 	const handleClearAll = (): void => {
-		const patch = Object.fromEntries(engine.filters.list().map(def => [def.key, undefined]));
+		// Reset each filter via its OWN toParams(fromParams(empty)) so the correct
+		// TFilters STATE fields are cleared. `def.key` is the filter's identifier,
+		// NOT necessarily a state field -- a filter can map its control to
+		// different keys (e.g. `rent` -> `minRent`/`maxRent`, `bedrooms` ->
+		// `minBedrooms`) via to/fromParams, so clearing `def.key` would no-op.
+		const patch = engine.filters
+			.list()
+			.reduce<Record<string, unknown>>((acc, def) => Object.assign(acc, def.toParams(def.fromParams({}))), {});
 		void engine.applyFilters(patch);
 	};
+
+	// Count of filters currently applied -- shown as a badge on the mobile
+	// Filters button so a collapsed filter set still signals it's active.
+	const activeFilterCount = engine.filters.list().filter(def => def.isActive?.(filters)).length;
 
 	const resultCount = results.total ?? results.items.length;
 
@@ -155,7 +166,12 @@ export function StyledListingLayout({
 				</div>
 			</div>
 
-			<MobileHeader search={searchBox} onFiltersClick={() => setSheetOpen(true)} action={mobileAction} />
+			<MobileHeader
+				search={searchBox}
+				onFiltersClick={() => setSheetOpen(true)}
+				filterCount={activeFilterCount}
+				action={mobileAction}
+			/>
 
 			<div
 				className={`rle-body ${hasMap ? 'rle-split' : 'rle-body--list-only'}`}

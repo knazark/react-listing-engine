@@ -772,6 +772,23 @@
 	color: var(--rle-muted);
 }
 
+/* Applied-filter count badge on the Filters button. */
+.rle-mobile-header__count {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	background: var(--rle-primary);
+	color: var(--rle-primary-contrast);
+	border-radius: var(--rle-radius-pill);
+	font-size: 11px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
 /* -----------------------------------------------------------------------
  * Body / split -- list-left, map-right from 768px up; a single full-area
  * panel (one of `.rle-list`/`.rle-map` visible at a time) below it.

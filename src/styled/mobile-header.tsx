@@ -12,6 +12,8 @@ export interface IMobileHeaderProps {
 	 */
 	search?: { value: string; onChange: (value: string) => void; placeholder?: string };
 	onFiltersClick(): void;
+	/** Number of filters currently applied; renders as a count badge on the Filters button when > 0. */
+	filterCount?: number;
 	/** Optional caller action (e.g. "Save"), rendered as an icon button on the right. */
 	action?: IBottomNavAction;
 }
@@ -25,7 +27,7 @@ export interface IMobileHeaderProps {
  * full inline filter row, whereas here the remaining filters move behind the
  * Filters button. The `List | Map` view toggle lives in the footer (`BottomNav`).
  */
-export function MobileHeader({ search, onFiltersClick, action }: IMobileHeaderProps) {
+export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }: IMobileHeaderProps) {
 	const { Search } = useListingComponents();
 
 	return (
@@ -39,6 +41,7 @@ export function MobileHeader({ search, onFiltersClick, action }: IMobileHeaderPr
 			<button type="button" className="rle-mobile-header__btn" onClick={onFiltersClick}>
 				<FiltersIcon />
 				<span>Filters</span>
+				{filterCount > 0 && <span className="rle-mobile-header__count">{filterCount}</span>}
 			</button>
 
 			{action && (
