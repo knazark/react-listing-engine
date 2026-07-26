@@ -599,10 +599,10 @@
 /* -----------------------------------------------------------------------
  * Layout shell -- the responsive "filter bar + list/map split" chrome
  * `StyledListingLayout` composes the `~/react` structure-only components
- * into. Breakpoint: 768px, matching the mobile-only bottom nav/sheet below.
+ * into. Breakpoint: 1024px, matching the mobile-only bottom nav/sheet below.
  * Mobile-first: rules with no media query apply to every width; a
- * `(min-width: 768px)` block layers desktop-only overrides, a
- * `(max-width: 767px)` block layers mobile-only overrides -- never both for
+ * `(min-width: 1024px)` block layers desktop-only overrides, a
+ * `(max-width: 1023px)` block layers mobile-only overrides -- never both for
  * the same property, so there is exactly one source of truth per viewport.
  * --------------------------------------------------------------------- */
 
@@ -641,7 +641,7 @@
 }
 
 /* -----------------------------------------------------------------------
- * Desktop filter bar -- hidden below 768px in favor of the bottom nav's
+ * Desktop filter bar -- hidden below 1024px in favor of the bottom nav's
  * Filters button + bottom sheet.
  * --------------------------------------------------------------------- */
 
@@ -649,21 +649,59 @@
 	position: sticky;
 	top: 0;
 	z-index: 10;
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--rle-space);
-	padding: var(--rle-space);
 	background: var(--rle-surface);
 	border-bottom: 1px solid var(--rle-border);
 }
 
-/* Bounded so the search sits inline with the filters on one row instead of
-   taking a full row of its own (the `.rle-input` inside is width:100%). */
+/* The scrolling row itself: one line that scrolls horizontally once the
+   active-filter badges overflow, instead of wrapping to a second row. Scrollbar
+   hidden; the fade overlays below sit above its edges. */
+.rle-filter-bar__scroll {
+	display: flex;
+	align-items: center;
+	gap: var(--rle-space);
+	padding: var(--rle-space);
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+}
+
+.rle-filter-bar__scroll::-webkit-scrollbar {
+	display: none;
+}
+
+/* Keep every item at its natural width so the row scrolls rather than squishing
+   its filter buttons. */
+.rle-filter-bar__scroll > * {
+	flex-shrink: 0;
+}
+
+/* Soft fade painted OVER the content at a scrollable edge -- rendered only on a
+   side that has more content off-screen (`useScrollEdges`), so content dissolves
+   into the bar background exactly like the host app's own filter bars. A
+   background gradient can't do this (it paints behind content); this overlay
+   sits on top. */
+.rle-filter-bar__fade {
+	position: absolute;
+	top: 0;
+	bottom: 1px; /* clear the bar's 1px border-bottom */
+	width: 44px;
+	pointer-events: none;
+}
+
+.rle-filter-bar__fade--start {
+	left: 0;
+	background: linear-gradient(to right, var(--rle-surface), transparent);
+}
+
+.rle-filter-bar__fade--end {
+	right: 0;
+	background: linear-gradient(to left, var(--rle-surface), transparent);
+}
+
+/* Fixed-width search so it neither grows into the filters nor collapses. */
 .rle-filter-bar__search {
-	flex: 1 1 200px;
-	min-width: 180px;
-	max-width: 340px;
+	flex: 0 0 clamp(180px, 22vw, 280px);
 }
 
 .rle-filter-bar__end {
@@ -673,7 +711,7 @@
 	margin-left: auto;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
 	.rle-filter-bar {
 		display: none;
 	}
@@ -685,9 +723,15 @@
    shrinkable wrapper for each individual filter group in either layout. */
 .rle-filters-row {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	align-items: center;
 	gap: var(--rle-space);
+}
+
+/* In the (scrolling) desktop row the groups keep their natural width; in the
+   mobile stack they lay out vertically, where this is a no-op. */
+.rle-filters-row > * {
+	flex-shrink: 0;
 }
 
 .rle-filter-stack {
@@ -701,7 +745,7 @@
 }
 
 /* -----------------------------------------------------------------------
- * Mobile header -- shown below 768px (hidden at 768px+), the compact
+ * Mobile header -- shown below 1024px (hidden at 1024px+), the compact
  * counterpart to the desktop `.rle-filter-bar`: the search input (grows to
  * fill), a Filters button that opens the bottom sheet, and an optional
  * trailing action (e.g. Save). The List|Map toggle lives in the floating
@@ -712,7 +756,7 @@
 	display: none;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
 	.rle-mobile-header {
 		position: sticky;
 		top: 0;
@@ -790,7 +834,7 @@
 }
 
 /* -----------------------------------------------------------------------
- * Body / split -- list-left, map-right from 768px up; a single full-area
+ * Body / split -- list-left, map-right from 1024px up; a single full-area
  * panel (one of `.rle-list`/`.rle-map` visible at a time) below it.
  * --------------------------------------------------------------------- */
 
@@ -806,7 +850,7 @@
 	height: 100%;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
 	.rle-split {
 		/* List-majority: scanning the cards is the primary task and the map is
 		   orientation, so the list takes ~58% (floored at 400px) rather than
@@ -839,10 +883,10 @@
 	height: 100%;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
 	/* Exactly one of list/map visible at a time, driven by the mobile-view
 	   toggle in the bottom nav -- see `listing-layout.tsx`. Scoped to mobile
-	   only: at 768px+ `.rle-split`'s two grid columns keep both visible
+	   only: at 1024px+ `.rle-split`'s two grid columns keep both visible
 	   regardless of this data attribute's current value. */
 	.rle-body[data-mobile-view='list'] .rle-map {
 		display: none;
@@ -873,7 +917,7 @@
 	display: none;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
 	.rle-bottom-nav {
 		position: fixed;
 		left: 50%;

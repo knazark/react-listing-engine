@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { LatLng } from '~/interfaces';
 import {
@@ -52,6 +52,41 @@ export interface IStyledListingLayoutProps {
 
 /** Centered, muted fallback shown in the map region when no `MapProvider` is configured. */
 const MAP_FALLBACK = <div className="rle-empty">Map unavailable</div>;
+
+/**
+ * Tracks whether a horizontally-scrollable element is at its left/right edges,
+ * so the filter bar can render a fade only on a side that still has content
+ * off-screen (`!atStart` / `!atEnd`). jsdom-safe: `ResizeObserver` is
+ * feature-detected so unit tests without it don't throw.
+ */
+function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
+	const ref = useRef<null | T>(null);
+	const [atStart, setAtStart] = useState(true);
+	const [atEnd, setAtEnd] = useState(true);
+
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const update = (): void => {
+			const { clientWidth, scrollLeft, scrollWidth } = el;
+			setAtStart(scrollLeft <= 0);
+			setAtEnd(scrollLeft + clientWidth >= scrollWidth - 1);
+		};
+		update();
+		el.addEventListener('scroll', update, { passive: true });
+		let ro: ResizeObserver | undefined;
+		if (typeof ResizeObserver !== 'undefined') {
+			ro = new ResizeObserver(update);
+			ro.observe(el);
+		}
+		return () => {
+			el.removeEventListener('scroll', update);
+			ro?.disconnect();
+		};
+	}, []);
+
+	return { atEnd, atStart, ref };
+}
 
 /**
  * Full, responsive, Tailwind-free listing experience -- the `/styled`
@@ -108,6 +143,7 @@ export function StyledListingLayout({
 
 	const [mobileView, setMobileView] = useState<BottomNavView>('list');
 	const [sheetOpen, setSheetOpen] = useState(false);
+	const { atEnd, atStart, ref: barScrollRef } = useScrollEdges<HTMLDivElement>();
 
 	// Library-wired search: read the current value straight off the engine's
 	// filters and write edits back through `applyFilters`, so the SAME box in
@@ -152,18 +188,24 @@ export function StyledListingLayout({
 	return (
 		<div className={className ? `rle-app ${className}` : 'rle-app'}>
 			<div className="rle-filter-bar">
-				{searchBox && (
-					<div className="rle-filter-bar__search">
-						<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+				<div className="rle-filter-bar__scroll" ref={barScrollRef}>
+					{searchBox && (
+						<div className="rle-filter-bar__search">
+							<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+						</div>
+					)}
+
+					<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
+
+					<div className="rle-filter-bar__end">
+						<ListingResultHeader />
+						{toolbarEnd}
 					</div>
-				)}
-
-				<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
-
-				<div className="rle-filter-bar__end">
-					<ListingResultHeader />
-					{toolbarEnd}
 				</div>
+
+				{/* Fade only on a side with more content off-screen (see `useScrollEdges`). */}
+				{!atStart && <div className="rle-filter-bar__fade rle-filter-bar__fade--start" aria-hidden="true" />}
+				{!atEnd && <div className="rle-filter-bar__fade rle-filter-bar__fade--end" aria-hidden="true" />}
 			</div>
 
 			<MobileHeader
