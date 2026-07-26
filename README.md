@@ -126,7 +126,7 @@ It needs Tailwind to see its class names and the shadcn-style CSS variables to b
   @import "tailwindcss";
   @source "../node_modules/react-listing-engine/dist/**/*.{js,cjs}";
   ```
-- or define the semantic tokens it reads yourself (`--color-background`, `--color-foreground`, `--color-card`, `--color-popover`, `--color-border`, `--color-primary`, `--color-secondary`, `--color-muted`, `--color-accent`, `--color-destructive`, plus `-foreground` variants), the same set any shadcn-based project already ships. [`examples/basic/src/index.css`](./examples/basic/src/index.css) is the source of truth for the full list.
+- or define the semantic tokens it reads yourself (`--color-background`, `--color-foreground`, `--color-card`, `--color-popover`, `--color-border`, `--color-primary`, `--color-secondary`, `--color-muted`, `--color-accent`, `--color-destructive`, plus `-foreground` variants), the same set any shadcn-based project already ships.
 
 ## Hooks
 
@@ -137,17 +137,6 @@ It needs Tailwind to see its class names and the shadcn-style CSS variables to b
 - `useListingMap()` — bounds + per-dataset points, plus `loadPoints(bounds)` / `selectPoint(datasetId, id)`.
 - `useListingLayer(id)` — one dataset's visibility, points, and a `toggle()`.
 - `useListingEvent(type | '*', handler)` — subscribe to engine events for the component's lifetime.
-
-## Examples
-
-[`examples/basic`](./examples/basic) is a Vite app with four scenarios, run locally (`pnpm install && pnpm dev` inside that folder):
-
-- **Properties only** — one dataset, the shipped rental filters, and the styled `/shadcn` defaults.
-- **Properties + businesses** — a second nearby-businesses marker layer composed alongside the properties dataset.
-- **Custom components** — `ListingComponentsProvider` with an app-authored `Card` and `Empty` slot.
-- **Custom filters** — `withFilters(reg => reg.add/remove/reorder)` mutating the shipped rental filter set.
-
-Each scenario works without a Google Maps key (the map is simply not rendered; a notice explains why) — set `VITE_GOOGLE_MAPS_KEY` in `examples/basic/.env` to see the map layer too.
 
 ## Support
 

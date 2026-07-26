@@ -2,11 +2,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  // `examples/*` are standalone consumer apps (their own package.json,
-  // tsconfig, node_modules) -- they dogfood the PUBLIC package API and are
-  // linted/typechecked/built independently (`pnpm --dir examples/basic ...`),
-  // not as part of this package's own `pnpm lint`/`typecheck`/`test`.
-  { ignores: ['dist', 'node_modules', 'coverage', 'examples'] },
+  { ignores: ['dist', 'node_modules', 'coverage'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
