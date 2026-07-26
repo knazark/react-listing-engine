@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.6.0
+
+### Minor Changes
+
+- `/styled`: revert the 0.5.0 unified filter bar. Restore the desktop filter bar + the mobile header (search + Filters button) + Filters bottom sheet, so a consumer can render distinct desktop vs. mobile filter controls (e.g. inline popover buttons on desktop, wheel-pickers in the mobile sheet). `MobileHeader` and the `BottomSheet`-backed Filters panel are back.
+
 ## 0.5.0
 
 ### Minor Changes

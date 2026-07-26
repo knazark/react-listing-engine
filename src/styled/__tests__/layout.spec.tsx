@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -88,8 +88,8 @@ describe('StyledListingLayout', () => {
 	});
 
 	it('drives its filterKey directly on the engine when a `search` box is given', async () => {
-		// No registered filter -- the filter-bar search box is the only thing
-		// touching `q`, proving the LIBRARY wires `search.filterKey` to the
+		// No registered filter -- the header/desktop-bar search box is the only
+		// thing touching `q`, proving the LIBRARY wires `search.filterKey` to the
 		// engine (value read from filters, edits via applyFilters).
 		const map = new FakeMapProvider();
 		const composed = composeListingProviders<Filters>(
@@ -113,24 +113,55 @@ describe('StyledListingLayout', () => {
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
 
-		// The single filter-bar search box drives the engine field.
-		fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'sunny' } });
+		// The box renders in BOTH the desktop bar and the mobile header -- both
+		// are wired to the same engine field, so editing either drives `q`.
+		const boxes = screen.getAllByLabelText('Search');
+		expect(boxes.length).toBeGreaterThanOrEqual(2);
+		fireEvent.change(boxes[0], { target: { value: 'sunny' } });
 
 		await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
 		expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
-		// The controlled value round-trips back through the engine into the box.
-		expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe('sunny');
+		// The controlled value round-trips back through the engine into every box.
+		expect((screen.getAllByLabelText('Search')[1] as HTMLInputElement).value).toBe('sunny');
 	});
 
-	it('renders the List|Map toggle and no "Filters" button (filters are inline, no sheet)', async () => {
+	it('renders the Filters button (mobile header) and the List|Map toggle (footer nav)', async () => {
 		renderLayout();
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 
 		expect(screen.getByRole('navigation', { name: 'Listing navigation' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true');
 		expect(screen.getByRole('button', { name: 'Map' })).toHaveAttribute('aria-pressed', 'false');
-		// Filters live inline in the bar now -- there is no Filters button or sheet.
-		expect(screen.queryByRole('button', { name: 'Filters' })).not.toBeInTheDocument();
+	});
+
+	it('opens the filters bottom sheet when Filters is clicked, and closes it via its own close button', async () => {
+		renderLayout();
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+
+		const dialog = screen.getByRole('dialog', { name: 'Filters' });
+		expect(dialog).toBeInTheDocument();
+		// The sheet stacks the SAME ListingFilters control the desktop bar uses --
+		// there are now two "Query" inputs on the page (bar + sheet).
+		expect(screen.getAllByLabelText('Query')).toHaveLength(2);
+		expect(within(dialog).getByText(/Show 2 results/)).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('closes the sheet via "Show N results" in its footer', async () => {
+		renderLayout();
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+		fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+		expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', { name: /Show 2 results/ }));
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
@@ -150,7 +181,7 @@ describe('StyledListingLayout', () => {
 		expect(body).toHaveAttribute('data-mobile-view', 'list');
 	});
 
-	it('fires mobileAction.onClick when the filter-bar action button is clicked', async () => {
+	it('fires mobileAction.onClick when the header action button is clicked', async () => {
 		const onClick = vi.fn();
 		renderLayout({ label: 'Add', onClick });
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
@@ -159,7 +190,7 @@ describe('StyledListingLayout', () => {
 		expect(onClick).toHaveBeenCalledTimes(1);
 	});
 
-	it('omits the filter-bar action button when mobileAction is not given', async () => {
+	it('omits the header action button when mobileAction is not given', async () => {
 		renderLayout();
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 

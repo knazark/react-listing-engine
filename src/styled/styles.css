@@ -650,6 +650,7 @@
 	top: 0;
 	z-index: 10;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--rle-space);
 	padding: var(--rle-space);
@@ -657,107 +658,25 @@
 	border-bottom: 1px solid var(--rle-border);
 }
 
-/* Search + filter controls. Wraps to multiple rows on desktop; on mobile it's
-   a single horizontally-scrolling row (dashboard filter-bar style), so the
-   filters stay inline instead of collapsing behind a button. */
-.rle-filter-bar__controls {
-	display: flex;
-	flex: 1 1 auto;
-	align-items: center;
-	gap: var(--rle-space);
-	min-width: 0;
-}
-
-@media (min-width: 768px) {
-	.rle-filter-bar__controls {
-		flex-wrap: wrap;
-	}
-}
-
-@media (max-width: 767px) {
-	/* The whole bar is one horizontally-scrolling row (dashboard-style): search
-	   + filter pills + action all scroll inline; the result count is dropped to
-	   keep room for the filters. A soft mask fades the scroll edges. */
-	.rle-filter-bar {
-		flex-wrap: nowrap;
-		overflow-x: auto;
-		scrollbar-width: none;
-		-webkit-overflow-scrolling: touch;
-		-webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-		mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
-	}
-
-	.rle-filter-bar::-webkit-scrollbar {
-		display: none;
-	}
-
-	.rle-filter-bar__controls {
-		flex: 0 0 auto;
-	}
-
-	.rle-filter-bar__count {
-		display: none;
-	}
-}
-
-/* Bounded so the search sits inline with the filters (the `.rle-input` inside
-   is width:100%). On mobile it's a fixed width that scrolls with the row. */
+/* Bounded so the search sits inline with the filters on one row instead of
+   taking a full row of its own (the `.rle-input` inside is width:100%). */
 .rle-filter-bar__search {
 	flex: 1 1 200px;
 	min-width: 180px;
 	max-width: 340px;
 }
 
-@media (max-width: 767px) {
-	.rle-filter-bar__search {
-		flex: 0 0 auto;
-		width: 180px;
-		min-width: 0;
-	}
-}
-
-/* Pinned trailing cluster (result count + optional action) -- stays put while
-   `.rle-filter-bar__controls` scrolls on mobile. */
 .rle-filter-bar__end {
 	display: flex;
-	flex-shrink: 0;
 	align-items: center;
 	gap: var(--rle-space);
+	margin-left: auto;
 }
 
-.rle-filter-bar__action {
-	display: inline-flex;
-	flex-shrink: 0;
-	align-items: center;
-	justify-content: center;
-	gap: 6px;
-	height: 36px;
-	padding: 0 12px;
-	background: var(--rle-surface);
-	border: 1px solid var(--rle-border);
-	border-radius: var(--rle-radius-sm);
-	color: var(--rle-fg);
-	font-size: var(--rle-fs-sm);
-	font-weight: 500;
-	white-space: nowrap;
-	cursor: pointer;
-	transition:
-		background-color 150ms ease,
-		border-color 150ms ease;
-}
-
-.rle-filter-bar__action svg {
-	width: 16px;
-	height: 16px;
-}
-
-.rle-filter-bar__action:hover {
-	background: var(--rle-muted-bg);
-}
-
-.rle-filter-bar__action:focus-visible {
-	outline: none;
-	box-shadow: 0 0 0 3px var(--rle-ring);
+@media (max-width: 767px) {
+	.rle-filter-bar {
+		display: none;
+	}
 }
 
 /* `<ListingFilters>`'s own `className`/`groupClassName` hooks (see that
@@ -781,16 +700,76 @@
 	min-width: 0;
 }
 
-/* Mobile: the filter row is one inline, non-wrapping line inside the scrolling
-   `.rle-filter-bar__controls`, and each group keeps its width (scrolls). */
-@media (max-width: 767px) {
-	.rle-filters-row {
-		flex-wrap: nowrap;
-	}
+/* -----------------------------------------------------------------------
+ * Mobile header -- shown below 768px (hidden at 768px+), the compact
+ * counterpart to the desktop `.rle-filter-bar`: the search input (grows to
+ * fill), a Filters button that opens the bottom sheet, and an optional
+ * trailing action (e.g. Save). The List|Map toggle lives in the floating
+ * footer (`.rle-bottom-nav`) instead.
+ * --------------------------------------------------------------------- */
 
-	.rle-filter-group {
-		flex-shrink: 0;
+.rle-mobile-header {
+	display: none;
+}
+
+@media (max-width: 767px) {
+	.rle-mobile-header {
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: var(--rle-space);
+		background: var(--rle-surface);
+		border-bottom: 1px solid var(--rle-border);
 	}
+}
+
+.rle-mobile-header__search {
+	flex: 1;
+	min-width: 0;
+}
+
+.rle-mobile-header__btn {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 40px;
+	padding: 0 12px;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-sm);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease;
+}
+
+.rle-mobile-header__btn svg {
+	width: 18px;
+	height: 18px;
+}
+
+.rle-mobile-header__btn:hover {
+	background: var(--rle-muted-bg);
+}
+
+.rle-mobile-header__btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-mobile-header__btn--icon {
+	width: 40px;
+	padding: 0;
+	color: var(--rle-muted);
 }
 
 /* -----------------------------------------------------------------------
