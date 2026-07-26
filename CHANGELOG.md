@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.1.1
+
+### Patch Changes
+
+- Packaging metadata update.
+
 ## 0.1.0
 
 ### Minor Changes

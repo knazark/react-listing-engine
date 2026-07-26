@@ -1,6 +1,6 @@
 {
   "name": "react-listing-engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a shadcn-compatible styled adapter.",
   "funding": [
@@ -30,14 +30,6 @@
     "shadcn"
   ],
   "author": "knazark",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/knazark/react-listing-engine.git"
-  },
-  "homepage": "https://github.com/knazark/react-listing-engine#readme",
-  "bugs": {
-    "url": "https://github.com/knazark/react-listing-engine/issues"
-  },
   "type": "module",
   "sideEffects": [
     "./dist/styles.css"
