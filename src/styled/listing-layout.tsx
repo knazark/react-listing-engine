@@ -74,14 +74,24 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
 		};
 		update();
 		el.addEventListener('scroll', update, { passive: true });
+		// ResizeObserver catches viewport/element resizes but NOT content growing
+		// past a fixed-width scroller (e.g. filter badges being added) -- that
+		// changes scrollWidth without changing the scroller's own box, so it never
+		// fires. A MutationObserver on the subtree covers those content changes.
 		let ro: ResizeObserver | undefined;
+		let mo: MutationObserver | undefined;
 		if (typeof ResizeObserver !== 'undefined') {
 			ro = new ResizeObserver(update);
 			ro.observe(el);
 		}
+		if (typeof MutationObserver !== 'undefined') {
+			mo = new MutationObserver(update);
+			mo.observe(el, { characterData: true, childList: true, subtree: true });
+		}
 		return () => {
 			el.removeEventListener('scroll', update);
 			ro?.disconnect();
+			mo?.disconnect();
 		};
 	}, []);
 
