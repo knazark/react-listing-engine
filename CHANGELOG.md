@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.2.1
+
+### Patch Changes
+
+- `/styled`: the mobile filters bottom sheet now uses a light, frosted (backdrop-blurred) scrim instead of a heavy dim, and its open slide/fade runs at 300ms with a strong ease-out -- a more modern bottom-sheet feel.
+
 ## 0.2.0
 
 ### Minor Changes
