@@ -27,7 +27,7 @@ pnpm add react-listing-engine
 
 ## Quickstart
 
-Minimal setup using the shipped rental preset — one dataset, the shipped filters, Google Maps, and the styled `/shadcn` layout:
+Minimal setup — one dataset, one filter, Google Maps, and the styled `/shadcn` layout. Define your own entity + filter shapes and back them with an `EntityAdapter`:
 
 ```tsx
 import {
@@ -36,26 +36,38 @@ import {
   withDataset,
   withFilters,
   withMap,
+  type EntityAdapter,
+  type FilterControlProps,
 } from 'react-listing-engine';
 import { ListingComponentsProviderWithDefaults, ListingLayout } from 'react-listing-engine/shadcn';
 import { googleProvider } from 'react-listing-engine/maps/google';
-import {
-  propertiesDataset,
-  withRentalFilters,
-  type PropertiesApiPort,
-  type PropertyEntity,
-  type RentalFilters,
-} from 'react-listing-engine/presets/rental';
 
-declare const propertiesApi: PropertiesApiPort; // your implementation, calling your real API
+interface Property { id: string; title: string; price: number; lat: number; lng: number }
+interface Filters { q?: string }
+
+// Your API-backed adapter: `list(filters, page)` for the results, `getPoints(filters, bounds)`
+// for the map pins. The engine never makes an HTTP call itself.
+declare const adapter: EntityAdapter<Property, Filters>;
+
+const SearchControl = ({ onChange, value }: FilterControlProps<string>) => (
+  <input onChange={e => onChange(e.target.value)} placeholder="Search" value={value} />
+);
 
 export function PropertySearch() {
   return (
-    <ListingProvider<PropertyEntity, RentalFilters>
-      {...composeListingProviders<RentalFilters>(
-        withMap<RentalFilters>(googleProvider({ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY! })),
-        withDataset(propertiesDataset(propertiesApi)),
-        withFilters(withRentalFilters()),
+    <ListingProvider<Property, Filters>
+      {...composeListingProviders<Filters>(
+        withMap<Filters>(googleProvider({ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY! })),
+        withDataset({ id: 'properties', adapter, marker: {} }),
+        withFilters<Filters>(reg =>
+          reg.add<string>({
+            key: 'q',
+            order: 0,
+            render: SearchControl,
+            toParams: v => ({ q: v || undefined }),
+            fromParams: f => f.q ?? '',
+          }),
+        ),
       )}
     >
       <ListingComponentsProviderWithDefaults>
@@ -66,13 +78,11 @@ export function PropertySearch() {
 }
 ```
 
-`propertiesApi` only needs to implement `PropertiesApiPort` (`list`, `search`, optional `getById`) against your own backend — the preset never makes an HTTP call itself.
-
 ## Customization tiers
 
 The engine is layered so you can go as deep as you need and stop:
 
-1. **Data** — implement `EntityAdapter<TEntity, TFilters>` (or a preset's narrower port, e.g. `PropertiesApiPort`) against your own API. Nothing in the engine assumes a specific backend or entity shape.
+1. **Data** — implement `EntityAdapter<TEntity, TFilters>` against your own API. Nothing in the engine assumes a specific backend or entity shape.
 2. **Structure** — compose the provider with `composeListingProviders(withMap(...), withDataset(...), withFilters(...), withUrlSync(...), withInitialFilters(...), withPrimaryDataset(...), withConfig(...))`. Mutate filters via `FilterRegistry` (`add`/`remove`/`reorder`/`replace`) and layers via `DatasetRegistry` (`add`/`get`/`has`/`list`/`visibleIds`).
 3. **Presentation** — swap any slot via `ListingComponentsProvider` (or start from `ListingComponentsProviderWithDefaults` for the `/shadcn` look and override only what you need). Injectable slots: `Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`. `Marker`/`Popup` are defined but not yet wired into the map's render output (see the Features note above) — every other slot renders as described.
 4. **Layout** — skip `ListingLayout` entirely and arrange the structure-only compound components yourself: `ListingList`, `ListingMap`, `ListingFilters`, `ListingResultHeader`, `ListingToolbar`, `ListingPagination`.
@@ -93,23 +103,21 @@ const map = googleProvider({
 - `loaderOptions` (optional) forwards extra `@googlemaps/js-api-loader` config (language, region, preloaded libraries); `key` is always taken from `apiKey` and can't be overridden there.
 - `DatasetDefinition.clustering` (`{ maxZoom }` or `false`) is implemented by the shipped `googleProvider`: when set, that layer's markers are wrapped in a `MarkerClusterer` (from the OPTIONAL peer dependency `@googlemaps/markerclusterer` — install it to enable clustering; without it, `googleProvider` warns once and falls back to plain, unclustered markers, no crash) with a custom renderer that draws a solid red circle showing the cluster's count. No Mapbox provider ships either; `MapProvider` is the seam if you want to add one.
 
-## Nearby businesses / multiple layers
+## Multiple marker layers
 
-A second marker layer composes onto the same map with one more `withDataset` call:
+A second marker layer (nearby businesses, schools, transit, …) composes onto the same map with one more `withDataset` call — its own `EntityAdapter` and marker:
 
 ```ts
-import { nearbyBusinessesDataset } from 'react-listing-engine/presets/rental';
-
-withDataset(
-  nearbyBusinessesDataset(businessesApi, {
-    icons: { grocery: '/icons/grocery.png', schools: '/icons/schools.png' },
-  }),
-)
+withDataset({
+  id: 'businesses',
+  adapter: businessesAdapter, // your EntityAdapter for the second layer
+  marker: { iconUrl: b => categoryIcons[b.category] },
+})
 ```
 
-`BusinessCategory` is an open `string` type, not a closed union — new categories are just new entries in your `icons`/`categories` data, no library change required. `KNOWN_BUSINESS_CATEGORIES` ships as a seeded starter list for building category pickers. Additional datasets are map-only layers; only the primary dataset (the first one added, or whichever id you pass as `primaryDatasetId` via `withPrimaryDataset`) drives the results list and pagination — implementing `list` on a secondary dataset's adapter has no effect on the list/pagination unless that dataset is made primary.
+Additional datasets are **map-only** layers: only the primary dataset (the first one added, or whichever id you pass as `primaryDatasetId` via `withPrimaryDataset`) drives the results list and pagination — implementing `list` on a secondary dataset's adapter has no effect on the list/pagination unless that dataset is made primary.
 
-**Filter shape caveat.** `ListingEngine.loadPoints` calls every visible layer's `getPoints` with the *primary* dataset's `TFilters` — there's a single filter state per engine, not one per layer. A secondary dataset whose filters have a genuinely different shape (e.g. `nearbyBusinessesDataset`'s `BusinessFilters` vs. the primary `RentalFilters`) is **not** driven by the engine's filter state at all; the engine's filter object simply isn't in `BusinessFilters`' shape by the time it reaches that layer's adapter. Filter such a layer through the dataset factory's own `opts` instead — e.g. `nearbyBusinessesDataset(api, { categories })` — which closes over the restriction at construction time rather than reading it from `useListingFilters()`.
+**Filter-shape caveat.** `ListingEngine.loadPoints` calls every visible layer's `getPoints` with the *primary* dataset's `TFilters` — there's a single filter state per engine, not one per layer. A secondary dataset whose filters have a genuinely different shape is **not** driven by the engine's filter state at all; the engine's filter object simply isn't in that shape by the time it reaches the layer's adapter. Filter such a layer at construction instead — close over the restriction in the adapter you hand to `withDataset` — rather than reading it from `useListingFilters()`.
 
 ## Styled adapter
 

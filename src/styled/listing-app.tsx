@@ -52,7 +52,7 @@ export interface ListingAppProps<TFilters> {
 	 */
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	datasets: DatasetDefinition<any, TFilters>[];
-	/** e.g. `withRentalFilters()`, or any `(reg) => { reg.add(...); }` callback -- forwarded verbatim to `withFilters`. */
+	/** A `(reg) => { reg.add(...); }` callback that registers your filters -- forwarded verbatim to `withFilters`. */
 	filters?: (reg: FilterRegistry<TFilters>) => void;
 	/** A ready `MapProvider`, or `{ apiKey, mapId? }` to build a `googleProvider` internally. Omit for no map (the styled layout shows a "Map unavailable" fallback). */
 	map?: ListingAppMapProp;

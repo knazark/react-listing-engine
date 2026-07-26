@@ -55,13 +55,13 @@ export interface ListingAppProps<TFilters> {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   datasets: DatasetDefinition<any, TFilters>[];
-  /** e.g. `withRentalFilters()`, or any `(reg) => { reg.add(...); }` callback -- forwarded verbatim to `withFilters`. */
+  /** A `(reg) => { reg.add(...); }` callback that registers your filters -- forwarded verbatim to `withFilters`. */
   filters?: (reg: FilterRegistry<TFilters>) => void;
   /** A ready `MapProvider`, or `{ apiKey, mapId? }` to build a `googleProvider` internally. Omit for no map (the styled layout shows a "Map unavailable" fallback). */
   map?: ListingAppMapProp;
   /** Slot overrides, merged OVER the shadcn styled defaults -- see this file's doc comment for how the merge works. */
   components?: Partial<IListingComponents>;
-  /** A `UrlSyncController<TFilters>` (e.g. `rentalUrlSync()`), or `true`. `true` is a documented no-op: the library is filters-shape-erased and cannot generically derive a `TFilters <-> QueryParams` mapping, which is exactly why domain presets (like `rentalUrlSync`) exist to build a real controller. */
+  /** A `UrlSyncController<TFilters>`, or `true`. `true` is a documented no-op: the library is filters-shape-erased and cannot generically derive a `TFilters <-> QueryParams` mapping, so build a real controller for your own filter shape. */
   urlSync?: UrlSyncController<TFilters> | boolean;
   initialFilters?: TFilters;
   config?: Partial<IListingConfigOptions>;

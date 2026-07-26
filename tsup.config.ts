@@ -8,7 +8,6 @@ export default defineConfig({
     'shadcn/index': 'src/shadcn/index.ts',
     'styled/index': 'src/styled/index.ts',
     'maps/google/index': 'src/maps/google/index.ts',
-    'presets/rental/index': 'src/presets/rental/index.ts',
     'testing/index': 'src/testing/index.ts',
   },
   tsconfig: 'tsconfig.build.json',
