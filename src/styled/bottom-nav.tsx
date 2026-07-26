@@ -20,7 +20,7 @@ export interface IBottomNavProps {
  * see `styles.css`): a floating **List | Map** segmented toggle
  * (`.rle-viewtoggle`) that drives which of `StyledListingLayout`'s two
  * full-area panels is visible. The **Filters** button and the optional caller
- * action (e.g. "Save") live in the mobile header (`MobileHeader`) instead, so
+ * action (e.g. "Save") live in the sticky filter bar (`.rle-filter-bar`) instead, so
  * the footer pill carries the view toggle alone. No lucide/icon library
  * dependency -- every icon here is a small inline SVG, matching the rest of
  * `/styled`'s zero-extra-dependency policy.

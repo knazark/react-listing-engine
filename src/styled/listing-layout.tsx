@@ -12,27 +12,24 @@ import {
 	useListing,
 	useListingComponents,
 	useListingFilters,
-	useListingResults,
 } from '~/react';
 
 import { BottomNav, type IBottomNavAction, type BottomNavView } from './bottom-nav';
-import { BottomSheet } from './bottom-sheet';
-import { MobileHeader } from './mobile-header';
 
 export interface IStyledListingLayoutProps {
 	/**
-	 * Optional header search box, LIBRARY-wired (unlike `/shadcn`'s
-	 * consumer-managed `search`): name the `TFilters` field it drives via
-	 * `filterKey`, and the layout reads the current value from the engine's
-	 * filters and writes edits back with `applyFilters({ [filterKey]: value ||
-	 * undefined })`. Rendered in BOTH the desktop filter bar and the mobile
-	 * header. Do NOT also register `filterKey` as a `ListingFilters` control --
-	 * it would then render twice. Omitted entirely when not passed.
+	 * Optional search box, LIBRARY-wired (unlike `/shadcn`'s consumer-managed
+	 * `search`): name the `TFilters` field it drives via `filterKey`, and the
+	 * layout reads the current value from the engine's filters and writes edits
+	 * back with `applyFilters({ [filterKey]: value || undefined })`. Rendered as
+	 * the first control in the filter bar. Do NOT also register `filterKey` as a
+	 * `ListingFilters` control -- it would then render twice. Omitted entirely
+	 * when not passed.
 	 */
 	search?: { filterKey: string; placeholder?: string };
-	/** Extra content rendered at the end of the desktop filter bar, alongside `ListingResultHeader` (e.g. a sort control). */
+	/** Extra content rendered at the end of the filter bar, alongside `ListingResultHeader` (e.g. a sort control). */
 	toolbarEnd?: ReactNode;
-	/** Optional bottom-nav action button (e.g. "Add"), forwarded verbatim to `<BottomNav action={...} />`. Omit to render just Filters + the List|Map toggle. */
+	/** Optional action button (e.g. "Save") rendered at the end of the filter bar. */
 	mobileAction?: IBottomNavAction;
 	/**
 	 * Whether a map is configured. When `false`, the map region is dropped and
@@ -56,40 +53,26 @@ const MAP_FALLBACK = <div className="rle-empty">Map unavailable</div>;
 /**
  * Full, responsive, Tailwind-free listing experience -- the `/styled`
  * counterpart to `/shadcn`'s `ListingLayout`, built from the same
- * structure-only compound components (`~/react`) plus the injected
- * `Styled*` slot components, but with a richer mobile experience: a bottom
- * nav (`BottomNav`) and a bottom sheet (`BottomSheet`) for filters, instead
- * of `/shadcn`'s inline mobile toggle bar. Every class used here is one of
- * the `.rle-*` layout classes added to `styles.css` alongside this file --
- * no Tailwind, no inline styles, no other stylesheet required.
+ * structure-only compound components (`~/react`) plus the injected `Styled*`
+ * slot components. Every class used here is one of the `.rle-*` layout classes
+ * in `styles.css` -- no Tailwind, no inline styles, no other stylesheet.
  *
  * STRUCTURE (`.rle-app`):
- * - `.rle-filter-bar` (desktop only, hidden below 768px by CSS): the
- *   optional `Search` slot, `<ListingFilters>` laid out as a wrapping row
- *   (`className="rle-filters-row"`, `groupClassName="rle-filter-group"`),
- *   and a trailing `.rle-filter-bar__end` cluster with `<ListingResultHeader>`
- *   + `toolbarEnd`.
- * - `.rle-body.rle-split`: a CSS grid from 768px up (list column floors at
- *   340px, caps at 42%; map takes the rest); below that, a single full-area
- *   panel with exactly one of `.rle-list`/`.rle-map` visible at a time via
- *   `data-mobile-view` (see `styles.css`'s mobile media query). Both regions
- *   stay mounted at ALL times regardless of viewport/toggle state -- only
- *   their visibility flips -- so neither `ListingList` nor `ListingMap`
- *   remounts (and re-triggers its own mount effects) on toggle or resize.
- * - `<BottomNav>`: mobile-only (CSS-hidden at 768px+). Wired to the same
- *   `mobileView` state as the CSS toggle, `mobileAction`, and opens the
- *   filters `<BottomSheet>`.
- * - `<BottomSheet title="Filters">`: the SAME `<ListingFilters>` component,
- *   stacked vertically (`className="rle-filter-stack"`) for the sheet's
- *   narrower body, plus a footer with "Clear all" (resets every registered
- *   filter to `undefined` via `engine.filters.list()`'s keys, routed through
- *   `engine.applyFilters` -- the one bulk mutator, same as `ListingFilters`
- *   itself uses) and "Show N results" (just closes the sheet -- every filter
- *   control already applies live via its own `onChange`, so there is nothing
- *   left to commit).
+ * - `.rle-filter-bar` (sticky, ALL breakpoints): a `.rle-filter-bar__controls`
+ *   cluster with the optional search box + `<ListingFilters hideLabels>` (a
+ *   wrapping row on desktop; a single horizontally-scrolling row on mobile,
+ *   dashboard-style, so filters stay inline instead of hiding behind a
+ *   button), and a pinned `.rle-filter-bar__end` cluster with
+ *   `<ListingResultHeader>`, the optional action, and `toolbarEnd`.
+ * - `.rle-body`: `.rle-split` (list-majority grid + map) when a map is present,
+ *   else `.rle-body--list-only` (full-width multi-column card grid). On mobile,
+ *   with a map, exactly one of `.rle-list`/`.rle-map` shows at a time via
+ *   `data-mobile-view` + the `<BottomNav>` List|Map toggle. Both regions stay
+ *   mounted regardless of toggle/viewport -- only visibility flips.
+ * - `<BottomNav>`: the mobile-only List|Map toggle, rendered only when a map
+ *   exists (nothing to toggle to otherwise).
  * - Fetches the first page itself on mount (`engine.applyFilters({})`) by
- *   default, exactly like `/shadcn`'s `ListingLayout` -- pass `autoFetch={false}`
- *   to opt out and drive the first fetch yourself.
+ *   default -- pass `autoFetch={false}` to drive the first fetch yourself.
  */
 export function StyledListingLayout({
 	search,
@@ -103,16 +86,13 @@ export function StyledListingLayout({
 }: IStyledListingLayoutProps) {
 	const engine = useListing();
 	const { Search } = useListingComponents();
-	const results = useListingResults();
 	const { filters } = useListingFilters();
 
 	const [mobileView, setMobileView] = useState<BottomNavView>('list');
-	const [sheetOpen, setSheetOpen] = useState(false);
 
 	// Library-wired search: read the current value straight off the engine's
-	// filters and write edits back through `applyFilters`, so the SAME box in
-	// the desktop bar and the mobile header both drive `search.filterKey`
-	// without the consumer plumbing value/onChange (see `search` prop doc).
+	// filters and write edits back through `applyFilters`, so the box drives
+	// `search.filterKey` without the consumer plumbing value/onChange.
 	const searchBox = search
 		? {
 				value: String((filters as Record<string, unknown>)[search.filterKey] ?? ''),
@@ -126,41 +106,38 @@ export function StyledListingLayout({
 	useEffect(() => {
 		if (autoFetch === false) return;
 		void engine.applyFilters({});
-		// Same reasoning as `/shadcn`'s `ListingLayout`: `engine` is stable
-		// across re-renders of the same `<ListingProvider>` (only changes on
-		// remount), so this fires once per mounted engine when autoFetch is on.
+		// `engine` is stable across re-renders of the same `<ListingProvider>`
+		// (only changes on remount), so this fires once per mounted engine.
 	}, [engine, autoFetch]);
-
-	const handleClearAll = (): void => {
-		const patch = Object.fromEntries(engine.filters.list().map(def => [def.key, undefined]));
-		void engine.applyFilters(patch);
-	};
-
-	const resultCount = results.total ?? results.items.length;
 
 	return (
 		<div className={className ? `rle-app ${className}` : 'rle-app'}>
 			<div className="rle-filter-bar">
-				{searchBox && (
-					<div className="rle-filter-bar__search">
-						<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
-					</div>
-				)}
+				<div className="rle-filter-bar__controls">
+					{searchBox && (
+						<div className="rle-filter-bar__search">
+							<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+						</div>
+					)}
 
-				<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
+					<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
+				</div>
 
 				<div className="rle-filter-bar__end">
-					<ListingResultHeader />
+					<span className="rle-filter-bar__count">
+						<ListingResultHeader />
+					</span>
+					{mobileAction && (
+						<button type="button" className="rle-filter-bar__action" onClick={mobileAction.onClick}>
+							{mobileAction.icon}
+							<span>{mobileAction.label}</span>
+						</button>
+					)}
 					{toolbarEnd}
 				</div>
 			</div>
 
-			<MobileHeader search={searchBox} onFiltersClick={() => setSheetOpen(true)} action={mobileAction} />
-
-			<div
-				className={`rle-body ${hasMap ? 'rle-split' : 'rle-body--list-only'}`}
-				data-mobile-view={mobileView}
-			>
+			<div className={`rle-body ${hasMap ? 'rle-split' : 'rle-body--list-only'}`} data-mobile-view={mobileView}>
 				<div className="rle-list">
 					<ListingList className="rle-list-grid" />
 					<ListingPagination />
@@ -173,24 +150,6 @@ export function StyledListingLayout({
 			</div>
 
 			{hasMap && <BottomNav view={mobileView} onViewChange={setMobileView} />}
-
-			<BottomSheet
-				title="Filters"
-				open={sheetOpen}
-				onOpenChange={setSheetOpen}
-				footer={
-					<>
-						<button type="button" className="rle-btn rle-btn--ghost" onClick={handleClearAll}>
-							Clear all
-						</button>
-						<button type="button" className="rle-btn rle-btn--primary" onClick={() => setSheetOpen(false)}>
-							Show {resultCount} results
-						</button>
-					</>
-				}
-			>
-				<ListingFilters className="rle-filter-stack" groupClassName="rle-filter-group" />
-			</BottomSheet>
 		</div>
 	);
 }

@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.5.0
+
+### Minor Changes
+
+- `/styled`: one unified, sticky filter bar on all breakpoints instead of a separate mobile header + "Filters" bottom sheet. Search + filters render inline; on mobile the bar is a single horizontally-scrolling row (dashboard-style) so filters stay visible rather than hiding behind a button. Removes the `MobileHeader`; the `BottomSheet` primitive is still exported but no longer used by the layout. The `search` box and the optional action now live in the filter bar (`mobileAction` is rendered there on all breakpoints).
+
 ## 0.4.1
 
 ### Patch Changes
