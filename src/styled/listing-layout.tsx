@@ -142,10 +142,12 @@ export function StyledListingLayout({
 		<div className={className ? `rle-app ${className}` : 'rle-app'}>
 			<div className="rle-filter-bar">
 				{searchBox && (
-					<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+					<div className="rle-filter-bar__search">
+						<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+					</div>
 				)}
 
-				<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" />
+				<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
 
 				<div className="rle-filter-bar__end">
 					<ListingResultHeader />

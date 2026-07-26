@@ -16,6 +16,12 @@ export interface IListingFiltersProps {
   className?: string;
   /** ClassName applied to each individual filter group's wrapper `<div>` (including the string-placeholder case). */
   groupClassName?: string;
+  /**
+   * Suppress the per-filter `label` above each control. Use for a compact
+   * inline filter bar where the control's own placeholder is label enough;
+   * leave off (labels shown) for a stacked form layout like the mobile sheet.
+   */
+  hideLabels?: boolean;
 }
 
 /**
@@ -46,7 +52,7 @@ export interface IListingFiltersProps {
  * label-above-control structure within each group -- only how the groups
  * themselves are laid out relative to each other.
  */
-export function ListingFilters({ className, groupClassName }: IListingFiltersProps = {}) {
+export function ListingFilters({ className, groupClassName, hideLabels }: IListingFiltersProps = {}) {
   const engine = useListing();
   const { FilterPanel } = useListingComponents();
   const { filters } = useListingFilters();
@@ -62,7 +68,9 @@ export function ListingFilters({ className, groupClassName }: IListingFiltersPro
           const Control = def.render;
           return (
             <div key={def.key} className={groupClassName}>
-              {def.label && <div className="mb-1.5 text-[13px] font-medium text-foreground">{def.label}</div>}
+              {def.label && !hideLabels && (
+                <div className="mb-1.5 text-[13px] font-medium text-foreground">{def.label}</div>
+              )}
               <Control
                 value={def.fromParams(filters)}
                 onChange={value => void engine.applyFilters(def.toParams(value))}

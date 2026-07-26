@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.4.0
+
+### Minor Changes
+
+- `/styled`: compact single-row filter bar. The search box is now bounded and sits inline with the filters (rather than taking a full row), and the desktop bar drops the per-filter labels via a new `ListingFilters` `hideLabels` prop -- the mobile filters sheet keeps its labels for a stacked form layout.
+
 ## 0.3.0
 
 ### Minor Changes

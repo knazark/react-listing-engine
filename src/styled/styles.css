@@ -651,11 +651,19 @@
 	z-index: 10;
 	display: flex;
 	flex-wrap: wrap;
-	align-items: flex-end;
+	align-items: center;
 	gap: var(--rle-space);
 	padding: var(--rle-space);
 	background: var(--rle-surface);
 	border-bottom: 1px solid var(--rle-border);
+}
+
+/* Bounded so the search sits inline with the filters on one row instead of
+   taking a full row of its own (the `.rle-input` inside is width:100%). */
+.rle-filter-bar__search {
+	flex: 1 1 200px;
+	min-width: 180px;
+	max-width: 340px;
 }
 
 .rle-filter-bar__end {
@@ -678,7 +686,7 @@
 .rle-filters-row {
 	display: flex;
 	flex-wrap: wrap;
-	align-items: flex-end;
+	align-items: center;
 	gap: var(--rle-space);
 }
 
