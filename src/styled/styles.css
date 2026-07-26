@@ -1,0 +1,972 @@
+/*!
+ * react-listing-engine / styled -- Tailwind-free CSS layer.
+ *
+ * THEMING API
+ * -----------
+ * This is the ONLY stylesheet the `/styled` adapter ships. Every visual
+ * value below (color, radius, shadow, spacing, font size) is read from a
+ * `--rle-*` custom property declared on `:root`. Retheme every `.rle-*`
+ * component at once by overriding a subset of them in your OWN CSS, loaded
+ * after this file -- no build step, no Tailwind config, no JS:
+ *
+ *   import 'react-listing-engine/styles.css';
+ *   import './my-theme.css'; // :root { --rle-primary: #0ea5e9; --rle-radius: 4px; }
+ *
+ * Full variable list (defaults shown = light theme, matches the TenantCloud
+ * /find look):
+ *
+ *   --rle-primary            accent color (buttons, marker pills, focus ring default)
+ *   --rle-primary-contrast   text color on top of --rle-primary
+ *   --rle-bg                 page-level background (the `.rle-app` layout shell;
+ *                            individual components use --rle-surface instead)
+ *   --rle-surface            card/popup/control background
+ *   --rle-fg                 primary text color
+ *   --rle-muted              secondary/muted text color
+ *   --rle-muted-bg           muted fill (skeletons, subtle badges, hover washes)
+ *   --rle-border             hairline border color
+ *   --rle-ring               focus-visible / selected ring color
+ *   --rle-danger             destructive/error state color
+ *   --rle-radius             large radius (cards, popups, dropdown panels)
+ *   --rle-radius-sm          small radius (inputs, buttons, skeletons)
+ *   --rle-radius-pill        fully-rounded (marker pill, badges)
+ *   --rle-shadow             resting/elevated shadow (popups, hover cards, dropdown panels)
+ *   --rle-shadow-sm          subtle shadow (marker pill, resting card)
+ *   --rle-space              base spacing unit
+ *   --rle-font-sans          font stack for every `.rle-*` element (default: inherit page font)
+ *   --rle-fs-sm              small text size (captions, periods, hints)
+ *   --rle-fs-md              body text size (labels, addresses, inputs)
+ *   --rle-fs-lg              large text size (card/popup titles)
+ *
+ * SCOPING
+ * -------
+ * Every rule in this file is anchored to a `.rle-` class -- nothing here
+ * targets bare tags (`div`, `button`, ...) or `*`, so importing this
+ * stylesheet can never bleed onto a consuming app's own markup, and the
+ * app's own CSS can never accidentally reach in and restyle these
+ * components except through the documented `--rle-*` variables.
+ */
+
+:root {
+	--rle-primary: #41a541;
+	--rle-primary-contrast: #ffffff;
+	--rle-bg: #ffffff;
+	--rle-surface: #ffffff;
+	--rle-fg: #334e68;
+	--rle-muted: #627d98;
+	--rle-muted-bg: #f0f4f8;
+	--rle-border: #d9e2ec;
+	--rle-ring: #41a541;
+	--rle-danger: #ba2525;
+	--rle-radius: 10px;
+	--rle-radius-sm: 6px;
+	--rle-radius-pill: 999px;
+	--rle-shadow: 0 0 32px rgba(136, 152, 170, 0.15);
+	--rle-shadow-sm: 0 1px 3px rgba(50, 50, 93, 0.12);
+	--rle-space: 12px;
+	--rle-font-sans: inherit;
+	--rle-fs-sm: 12px;
+	--rle-fs-md: 14px;
+	--rle-fs-lg: 16px;
+}
+
+/* -----------------------------------------------------------------------
+ * Base -- box-sizing + font-family for every element this stylesheet owns.
+ * --------------------------------------------------------------------- */
+
+.rle-card,
+.rle-card-media,
+.rle-card-body,
+.rle-marker,
+.rle-pin,
+.rle-popup,
+.rle-popup-close,
+.rle-empty,
+.rle-empty-icon,
+.rle-loading,
+.rle-loading-item,
+.rle-skeleton,
+.rle-result-header,
+.rle-toolbar,
+.rle-sidebar,
+.rle-filter-panel,
+.rle-input,
+.rle-range,
+.rle-select,
+.rle-dropdown,
+.rle-dropdown-panel,
+.rle-checkbox,
+.rle-label,
+.rle-btn {
+	box-sizing: border-box;
+	font-family: var(--rle-font-sans);
+}
+
+/* -----------------------------------------------------------------------
+ * Card
+ * --------------------------------------------------------------------- */
+
+.rle-card {
+	display: flex;
+	width: 100%;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius);
+	box-shadow: var(--rle-shadow-sm);
+	color: var(--rle-fg);
+	text-align: left;
+	font: inherit;
+}
+
+/* Only the interactive (`onSelect` given) variant renders as a real
+   `<button type="button" class="rle-card">` -- reset browser button chrome
+   and add the pointer/hover/focus affordances only there, so the
+   non-interactive `<article class="rle-card">` variant stays inert. */
+.rle-card[type='button'] {
+	margin: 0;
+	padding: 0;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	cursor: pointer;
+	transition:
+		box-shadow 150ms ease,
+		border-color 150ms ease;
+}
+
+.rle-card[type='button']:hover {
+	box-shadow: var(--rle-shadow);
+}
+
+.rle-card[type='button']:focus-visible {
+	outline: none;
+	border-color: var(--rle-ring);
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-card--selected {
+	border-color: var(--rle-ring);
+	box-shadow: 0 0 0 2px var(--rle-ring);
+}
+
+.rle-card-media {
+	display: block;
+	width: 100%;
+	aspect-ratio: 4 / 3;
+	object-fit: cover;
+	background: var(--rle-muted-bg);
+	border-top-left-radius: var(--rle-radius);
+	border-top-right-radius: var(--rle-radius);
+}
+
+.rle-card-media--placeholder {
+	background: var(--rle-muted-bg);
+}
+
+.rle-card-body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 4px;
+	padding: var(--rle-space);
+}
+
+.rle-card-title {
+	font-size: var(--rle-fs-lg);
+	font-weight: 600;
+	color: var(--rle-fg);
+	line-height: 1.3;
+}
+
+.rle-card-address {
+	font-size: var(--rle-fs-md);
+	color: var(--rle-muted);
+}
+
+.rle-card-info {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	font-size: var(--rle-fs-md);
+	color: var(--rle-muted);
+}
+
+.rle-card-info-item:not(:first-child)::before {
+	content: '\00b7';
+	display: inline-block;
+	margin: 0 0.4em;
+	color: var(--rle-muted);
+}
+
+.rle-card-price {
+	margin-top: 2px;
+	font-size: var(--rle-fs-lg);
+	font-weight: 700;
+	color: var(--rle-fg);
+	font-variant-numeric: tabular-nums;
+}
+
+.rle-card-price-period {
+	margin-left: 0.25em;
+	font-size: var(--rle-fs-sm);
+	font-weight: 400;
+	color: var(--rle-muted);
+}
+
+/* -----------------------------------------------------------------------
+ * Marker pill
+ * --------------------------------------------------------------------- */
+
+.rle-marker {
+	display: inline-flex;
+	align-items: center;
+	white-space: nowrap;
+	padding: 4px 10px;
+	background: var(--rle-primary);
+	color: var(--rle-primary-contrast);
+	border-radius: var(--rle-radius-pill);
+	font-size: var(--rle-fs-sm);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	box-shadow: var(--rle-shadow-sm);
+}
+
+/* -----------------------------------------------------------------------
+ * Map pin -- Rentler-style teardrop price marker: `.rle-marker` above is a
+ * plain pill; this is the same pill PLUS a pointed tail (`::after`, a
+ * rotated square) so the marker's visual tip lands on the exact
+ * coordinate -- matches `AdvancedMarkerElement`'s default content anchor
+ * (bottom-center). `properties-dataset.ts`'s `defaultPriceMarkerElement` is
+ * the raw-DOM (non-CSS-class) equivalent used for the map's own `content`
+ * node, built with the same shape via inline styles.
+ * --------------------------------------------------------------------- */
+
+.rle-pin {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	white-space: nowrap;
+	padding: 4px 9px;
+	background: var(--rle-primary);
+	color: var(--rle-primary-contrast);
+	border-radius: var(--rle-radius-pill);
+	font-size: var(--rle-fs-sm);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	box-shadow: var(--rle-shadow-sm);
+}
+
+.rle-pin::after {
+	content: '';
+	position: absolute;
+	bottom: -3px;
+	left: 50%;
+	width: 8px;
+	height: 8px;
+	background: inherit;
+	border-radius: 0 0 2px 0;
+	/* `background: inherit` (not a literal color) so `.rle-pin--selected`'s
+	   darker background is picked up by the pointer automatically -- no
+	   separate selected rule needed for this pseudo-element. */
+	transform: translateX(-50%) rotate(45deg);
+}
+
+.rle-pin--selected {
+	filter: brightness(0.82);
+	box-shadow: 0 0 0 2px var(--rle-ring);
+}
+
+/* -----------------------------------------------------------------------
+ * Popup
+ * --------------------------------------------------------------------- */
+
+.rle-popup {
+	position: relative;
+	max-width: 18rem;
+	padding: var(--rle-space);
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius);
+	box-shadow: var(--rle-shadow);
+	color: var(--rle-fg);
+}
+
+.rle-popup-close {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	background: transparent;
+	border: none;
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-muted);
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.rle-popup-close:hover {
+	background: var(--rle-muted-bg);
+	color: var(--rle-fg);
+}
+
+.rle-popup-close:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--rle-ring);
+}
+
+/* -----------------------------------------------------------------------
+ * States -- empty / loading / result header
+ * --------------------------------------------------------------------- */
+
+.rle-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: calc(var(--rle-space) * 3) var(--rle-space);
+	text-align: center;
+	color: var(--rle-muted);
+}
+
+.rle-empty-icon {
+	width: 32px;
+	height: 32px;
+	color: var(--rle-muted);
+}
+
+.rle-empty-title {
+	font-size: var(--rle-fs-md);
+	font-weight: 600;
+	color: var(--rle-fg);
+}
+
+.rle-empty-hint {
+	font-size: var(--rle-fs-sm);
+	color: var(--rle-muted);
+}
+
+.rle-loading {
+	display: grid;
+	gap: var(--rle-space);
+	padding: var(--rle-space);
+}
+
+.rle-loading-item {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.rle-skeleton {
+	background: var(--rle-muted-bg);
+	border-radius: var(--rle-radius-sm);
+	animation: rle-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes rle-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.45;
+	}
+}
+
+.rle-result-header {
+	font-size: var(--rle-fs-md);
+	color: var(--rle-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* -----------------------------------------------------------------------
+ * Layout-adjacent chrome (Toolbar / Sidebar / FilterPanel) -- not part of
+ * the Phase 2 layout contract itself, just the default slot components'
+ * own chrome. Kept intentionally simple/non-responsive here; Phase 2 adds
+ * layout + mobile classes alongside these without needing to change them.
+ * --------------------------------------------------------------------- */
+
+.rle-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--rle-space);
+	padding: calc(var(--rle-space) * 0.75) var(--rle-space);
+	border-bottom: 1px solid var(--rle-border);
+}
+
+.rle-sidebar {
+	display: flex;
+	flex-direction: column;
+	gap: var(--rle-space);
+	padding: var(--rle-space);
+}
+
+.rle-filter-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--rle-space);
+}
+
+/* -----------------------------------------------------------------------
+ * Form controls
+ * --------------------------------------------------------------------- */
+
+.rle-label {
+	display: block;
+	margin-bottom: 0.35em;
+	font-size: var(--rle-fs-sm);
+	font-weight: 500;
+	color: var(--rle-fg);
+}
+
+.rle-input {
+	display: block;
+	width: 100%;
+	height: 36px;
+	padding: 0 0.75em;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-md);
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.rle-input::placeholder {
+	color: var(--rle-muted);
+}
+
+.rle-input:focus-visible {
+	outline: none;
+	border-color: var(--rle-primary);
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-range {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.rle-range .rle-input {
+	min-width: 0;
+	flex: 1;
+}
+
+.rle-range-sep {
+	color: var(--rle-muted);
+	font-size: var(--rle-fs-md);
+}
+
+.rle-select,
+.rle-dropdown {
+	position: relative;
+	display: inline-flex;
+	width: 100%;
+	height: 36px;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 0.75em;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-md);
+	cursor: pointer;
+	transition:
+		border-color 150ms ease,
+		box-shadow 150ms ease;
+}
+
+.rle-select:focus-visible,
+.rle-dropdown:focus-visible {
+	outline: none;
+	border-color: var(--rle-primary);
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-dropdown-panel {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	z-index: 20;
+	min-width: 100%;
+	padding: 4px;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	box-shadow: var(--rle-shadow);
+}
+
+.rle-checkbox {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--rle-primary);
+}
+
+/* -----------------------------------------------------------------------
+ * Buttons
+ * --------------------------------------------------------------------- */
+
+.rle-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4em;
+	height: 36px;
+	padding: 0 1em;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-md);
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease,
+		box-shadow 150ms ease,
+		color 150ms ease;
+}
+
+.rle-btn:hover {
+	background: var(--rle-muted-bg);
+}
+
+.rle-btn:focus-visible {
+	outline: none;
+	border-color: var(--rle-primary);
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-btn--primary {
+	background: var(--rle-primary);
+	border-color: var(--rle-primary);
+	color: var(--rle-primary-contrast);
+}
+
+.rle-btn--primary:hover {
+	filter: brightness(0.94);
+}
+
+.rle-btn--ghost {
+	background: transparent;
+	border-color: transparent;
+}
+
+.rle-btn--ghost:hover {
+	background: var(--rle-muted-bg);
+}
+
+.rle-btn--sm {
+	height: 28px;
+	padding: 0 0.75em;
+	border-radius: var(--rle-radius-sm);
+	font-size: var(--rle-fs-sm);
+}
+
+/* -----------------------------------------------------------------------
+ * Motion
+ * --------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+	.rle-card[type='button'],
+	.rle-popup-close,
+	.rle-skeleton,
+	.rle-input,
+	.rle-select,
+	.rle-dropdown,
+	.rle-btn,
+	.rle-bottom-nav__btn,
+	.rle-viewtoggle__btn,
+	.rle-sheet,
+	.rle-sheet-backdrop {
+		transition: none;
+		animation: none;
+	}
+}
+
+/* -----------------------------------------------------------------------
+ * Layout shell -- the responsive "filter bar + list/map split" chrome
+ * `StyledListingLayout` composes the `~/react` structure-only components
+ * into. Breakpoint: 768px, matching the mobile-only bottom nav/sheet below.
+ * Mobile-first: rules with no media query apply to every width; a
+ * `(min-width: 768px)` block layers desktop-only overrides, a
+ * `(max-width: 767px)` block layers mobile-only overrides -- never both for
+ * the same property, so there is exactly one source of truth per viewport.
+ * --------------------------------------------------------------------- */
+
+.rle-app,
+.rle-filter-bar,
+.rle-filter-bar__end,
+.rle-filters-row,
+.rle-filter-stack,
+.rle-filter-group,
+.rle-body,
+.rle-split,
+.rle-list,
+.rle-list-grid,
+.rle-map,
+.rle-bottom-nav,
+.rle-bottom-nav__btn,
+.rle-viewtoggle,
+.rle-viewtoggle__btn,
+.rle-sheet-backdrop,
+.rle-sheet,
+.rle-sheet__handle,
+.rle-sheet__header,
+.rle-sheet__title,
+.rle-sheet__close,
+.rle-sheet__body,
+.rle-sheet__footer {
+	box-sizing: border-box;
+	font-family: var(--rle-font-sans);
+}
+
+.rle-app {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	background: var(--rle-bg);
+	color: var(--rle-fg);
+}
+
+/* -----------------------------------------------------------------------
+ * Desktop filter bar -- hidden below 768px in favor of the bottom nav's
+ * Filters button + bottom sheet.
+ * --------------------------------------------------------------------- */
+
+.rle-filter-bar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--rle-space);
+	padding: var(--rle-space);
+	background: var(--rle-surface);
+	border-bottom: 1px solid var(--rle-border);
+}
+
+.rle-filter-bar__end {
+	display: flex;
+	align-items: center;
+	gap: var(--rle-space);
+	margin-left: auto;
+}
+
+@media (max-width: 767px) {
+	.rle-filter-bar {
+		display: none;
+	}
+}
+
+/* `<ListingFilters>`'s own `className`/`groupClassName` hooks (see that
+   component's doc comment in `~/react`) -- a horizontal, wrapping row for the
+   desktop filter bar, a vertical stack for the mobile sheet body, and a
+   shrinkable wrapper for each individual filter group in either layout. */
+.rle-filters-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--rle-space);
+}
+
+.rle-filter-stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--rle-space);
+}
+
+.rle-filter-group {
+	min-width: 0;
+}
+
+/* -----------------------------------------------------------------------
+ * Body / split -- list-left, map-right from 768px up; a single full-area
+ * panel (one of `.rle-list`/`.rle-map` visible at a time) below it.
+ * --------------------------------------------------------------------- */
+
+.rle-body {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+}
+
+.rle-split {
+	display: grid;
+	min-height: 0;
+	height: 100%;
+}
+
+@media (min-width: 768px) {
+	.rle-split {
+		grid-template-columns: minmax(340px, 42%) 1fr;
+	}
+}
+
+.rle-list {
+	min-height: 0;
+	height: 100%;
+	overflow-y: auto;
+	padding: var(--rle-space);
+}
+
+.rle-list-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: var(--rle-space);
+}
+
+.rle-map {
+	min-height: 0;
+	height: 100%;
+}
+
+@media (max-width: 767px) {
+	/* Exactly one of list/map visible at a time, driven by the mobile-view
+	   toggle in the bottom nav -- see `listing-layout.tsx`. Scoped to mobile
+	   only: at 768px+ `.rle-split`'s two grid columns keep both visible
+	   regardless of this data attribute's current value. */
+	.rle-body[data-mobile-view='list'] .rle-map {
+		display: none;
+	}
+
+	.rle-body[data-mobile-view='map'] .rle-list {
+		display: none;
+	}
+
+	/* Reserve room for the floating bottom-nav pill so the last card/control
+	   isn't hidden behind it (see `.rle-bottom-nav` below -- its own height
+	   plus its floating offset from the viewport bottom, ~72px). */
+	.rle-list {
+		padding-bottom: calc(72px + env(safe-area-inset-bottom));
+	}
+}
+
+/* -----------------------------------------------------------------------
+ * Bottom nav -- mobile only (Filters / optional action / List|Map toggle).
+ * A centered, floating rounded PILL, not a full-width bar (Rentler mobile
+ * reference): `left: 50%` + `transform: translateX(-50%)` centers it,
+ * `width: auto` + `max-width` lets it shrink-to-fit its buttons instead of
+ * spanning the viewport, and `bottom` floats it clear of the safe area
+ * instead of sitting flush against the edge.
+ * --------------------------------------------------------------------- */
+
+.rle-bottom-nav {
+	display: none;
+}
+
+@media (max-width: 767px) {
+	.rle-bottom-nav {
+		position: fixed;
+		left: 50%;
+		bottom: calc(12px + env(safe-area-inset-bottom));
+		z-index: 30;
+		display: flex;
+		align-items: stretch;
+		width: auto;
+		max-width: calc(100% - 24px);
+		gap: 4px;
+		padding: 6px 8px;
+		background: var(--rle-surface);
+		border: 1px solid var(--rle-border);
+		border-radius: var(--rle-radius-pill);
+		box-shadow: var(--rle-shadow);
+		transform: translateX(-50%);
+	}
+}
+
+.rle-bottom-nav__btn {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	min-height: 44px;
+	padding: 6px 4px;
+	background: transparent;
+	border: none;
+	color: var(--rle-muted);
+	font-size: var(--rle-fs-sm);
+	font-weight: 500;
+	line-height: 1.2;
+	cursor: pointer;
+	transition:
+		color 150ms ease,
+		background-color 150ms ease;
+}
+
+.rle-bottom-nav__btn svg {
+	width: 20px;
+	height: 20px;
+}
+
+.rle-bottom-nav__btn:hover {
+	background: var(--rle-muted-bg);
+}
+
+.rle-bottom-nav__btn:focus-visible {
+	outline: none;
+	box-shadow: inset 0 0 0 2px var(--rle-ring);
+}
+
+.rle-bottom-nav__btn--active {
+	color: var(--rle-primary);
+}
+
+.rle-viewtoggle {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+	padding: 6px;
+}
+
+.rle-viewtoggle__btn {
+	display: inline-flex;
+	min-height: 32px;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	padding: 4px 12px;
+	background: transparent;
+	border: none;
+	border-radius: var(--rle-radius-pill);
+	color: var(--rle-muted);
+	font-size: var(--rle-fs-sm);
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.rle-viewtoggle__btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--rle-ring);
+}
+
+.rle-viewtoggle__btn--active {
+	background: var(--rle-primary);
+	color: var(--rle-primary-contrast);
+}
+
+/* -----------------------------------------------------------------------
+ * Bottom sheet -- dependency-free modal used for the mobile filters panel.
+ * --------------------------------------------------------------------- */
+
+.rle-sheet-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	background: rgba(0, 0, 0, 0.4);
+	opacity: 0;
+	transition: opacity 200ms ease;
+}
+
+.rle-sheet-backdrop--open {
+	opacity: 1;
+}
+
+.rle-sheet {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 41;
+	display: flex;
+	max-height: 85vh;
+	flex-direction: column;
+	background: var(--rle-surface);
+	border-top-left-radius: var(--rle-radius);
+	border-top-right-radius: var(--rle-radius);
+	box-shadow: var(--rle-shadow);
+	transform: translateY(100%);
+	transition: transform 200ms ease;
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+.rle-sheet--open {
+	transform: translateY(0);
+}
+
+.rle-sheet__handle {
+	flex-shrink: 0;
+	width: 36px;
+	height: 4px;
+	margin: 10px auto 4px;
+	background: var(--rle-border);
+	border-radius: var(--rle-radius-pill);
+}
+
+.rle-sheet__header {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px var(--rle-space) var(--rle-space);
+}
+
+.rle-sheet__title {
+	font-size: var(--rle-fs-lg);
+	font-weight: 600;
+	color: var(--rle-fg);
+}
+
+.rle-sheet__close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	background: transparent;
+	border: none;
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-muted);
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		color 150ms ease;
+}
+
+.rle-sheet__close:hover {
+	background: var(--rle-muted-bg);
+	color: var(--rle-fg);
+}
+
+.rle-sheet__close:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--rle-ring);
+}
+
+.rle-sheet__body {
+	flex: 1;
+	overflow-y: auto;
+	padding: 0 var(--rle-space) var(--rle-space);
+}
+
+.rle-sheet__footer {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--rle-space);
+	padding: var(--rle-space);
+	border-top: 1px solid var(--rle-border);
+}

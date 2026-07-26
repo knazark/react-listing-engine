@@ -1,0 +1,64 @@
+import type { Bounds, MapHandle, MapInitOptions, MapProvider, RenderedLayer, Unsubscribe } from '~/interfaces';
+
+type BoundsListener = (b: Bounds) => void;
+
+/**
+ * Headless in-memory `MapProvider` test double. Records everything it is
+ * asked to do (mounts, rendered layers, fitBounds calls, destroys) into
+ * public arrays/counters, and exposes `emitBounds()` so a test can simulate
+ * a user pan/zoom without a real map SDK or browser.
+ */
+export class FakeMapProvider implements MapProvider {
+  readonly mounts: MapHandle[] = [];
+  readonly renderedLayers: RenderedLayer[] = [];
+  readonly removedLayers: RenderedLayer[] = [];
+  readonly fitBoundsCalls: Bounds[] = [];
+  readonly destroyed: MapHandle[] = [];
+  destroyCount = 0;
+
+  private readonly boundsListeners = new Set<BoundsListener>();
+
+  mount(el: HTMLElement, opts: MapInitOptions): MapHandle {
+    const handle: MapHandle = { raw: { el, opts } };
+    this.mounts.push(handle);
+    return handle;
+  }
+
+  renderLayer(_handle: MapHandle, layer: RenderedLayer): Unsubscribe {
+    this.renderedLayers.push(layer);
+    let removed = false;
+    return () => {
+      if (removed) return;
+      removed = true;
+      const index = this.renderedLayers.indexOf(layer);
+      if (index !== -1) {
+        this.renderedLayers.splice(index, 1);
+        this.removedLayers.push(layer);
+      }
+    };
+  }
+
+  onBoundsChange(_handle: MapHandle, cb: BoundsListener): Unsubscribe {
+    this.boundsListeners.add(cb);
+    return () => {
+      this.boundsListeners.delete(cb);
+    };
+  }
+
+  /** Test-only: simulates a user pan/zoom by invoking every registered bounds listener. */
+  emitBounds(b: Bounds): void {
+    for (const cb of this.boundsListeners) {
+      cb(b);
+    }
+  }
+
+  fitBounds(_handle: MapHandle, b: Bounds): void {
+    this.fitBoundsCalls.push(b);
+  }
+
+  destroy(handle: MapHandle): void {
+    this.destroyed.push(handle);
+    this.destroyCount += 1;
+    this.boundsListeners.clear();
+  }
+}

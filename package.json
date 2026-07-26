@@ -1,0 +1,143 @@
+{
+  "name": "react-listing-engine",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a shadcn-compatible styled adapter.",
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/knazark"
+    },
+    {
+      "type": "individual",
+      "url": "https://send.monobank.ua/jar/2jfphHthfY"
+    }
+  ],
+  "keywords": [
+    "react",
+    "listing",
+    "map",
+    "google-maps",
+    "filters",
+    "real-estate",
+    "directory",
+    "store-locator",
+    "headless",
+    "typescript",
+    "nextjs",
+    "react18",
+    "react19",
+    "shadcn"
+  ],
+  "author": "knazark",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/knazark/react-listing-engine.git"
+  },
+  "homepage": "https://github.com/knazark/react-listing-engine#readme",
+  "bugs": {
+    "url": "https://github.com/knazark/react-listing-engine/issues"
+  },
+  "type": "module",
+  "sideEffects": [
+    "./dist/styles.css"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./shadcn": {
+      "types": "./dist/shadcn/index.d.ts",
+      "import": "./dist/shadcn/index.js",
+      "require": "./dist/shadcn/index.cjs"
+    },
+    "./styled": {
+      "types": "./dist/styled/index.d.ts",
+      "import": "./dist/styled/index.js",
+      "require": "./dist/styled/index.cjs"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./maps/google": {
+      "types": "./dist/maps/google/index.d.ts",
+      "import": "./dist/maps/google/index.js",
+      "require": "./dist/maps/google/index.cjs"
+    },
+    "./presets/rental": {
+      "types": "./dist/presets/rental/index.d.ts",
+      "import": "./dist/presets/rental/index.js",
+      "require": "./dist/presets/rental/index.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js",
+      "require": "./dist/testing/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "peerDependencies": {
+    "@googlemaps/js-api-loader": ">=1",
+    "@googlemaps/markerclusterer": ">=2",
+    "@radix-ui/react-slot": ">=1",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@googlemaps/js-api-loader": {
+      "optional": true
+    },
+    "@googlemaps/markerclusterer": {
+      "optional": true
+    },
+    "@radix-ui/react-slot": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@googlemaps/js-api-loader": "^2.1.1",
+    "@googlemaps/markerclusterer": "^2.6.2",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/google.maps": "^3.65.3",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "happy-dom": "^20.11.1",
+    "lucide-react": "^1.26.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
