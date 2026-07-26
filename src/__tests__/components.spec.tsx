@@ -172,7 +172,7 @@ describe('ListingToolbar', () => {
 });
 
 describe('ListingPagination', () => {
-  it('disables the button when there is no nextCursor, and enables + calls loadPage otherwise', async () => {
+  it('renders nothing when there is no nextCursor', async () => {
     function FilterControls() {
       const engine = useListing();
       return <button onClick={() => void engine.applyFilters({})}>load</button>;
@@ -185,12 +185,15 @@ describe('ListingPagination', () => {
       </Wrapper>,
     );
 
-    // No results loaded yet -> nextCursor is null -> disabled.
-    expect(screen.getByRole('button', { name: /load more/i })).toBeDisabled();
+    // No results loaded yet -> nextCursor is null -> no dangling button.
+    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
 
+    // pageSize (20) > total rows (4), so nextCursor stays null after the load
+    // too -> still nothing rendered.
     fireEvent.click(screen.getByText('load'));
-    await waitFor(() => expect(screen.getByRole('button', { name: /load more/i })).toBeDisabled());
-    // pageSize (20) > total rows (4), so nextCursor stays null after the initial load too.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument(),
+    );
   });
 
   it('enables the button and calls engine.loadPage() when a nextCursor is present', async () => {

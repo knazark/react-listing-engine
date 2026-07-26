@@ -1,5 +1,15 @@
 # react-listing-engine
 
+## 0.3.0
+
+### Minor Changes
+
+- `/styled`: make the results list the primary surface and improve the responsive grid.
+
+  - When no map is configured, the layout now fills the full width as a multi-column card grid (and drops the mobile List|Map toggle) instead of reserving half the viewport for an empty map region. `ListingApp` detects this from its `map` prop; `StyledListingLayout` takes a new `hasMap` prop (defaults `true`).
+  - When a map IS present, the split gives the list the majority share (~58%, floored at 400px) rather than the minority, and cards reach multiple columns sooner.
+  - `ListingPagination` renders nothing when there is no next page, instead of a dangling disabled "Load more" button on empty/last pages.
+
 ## 0.2.1
 
 ### Patch Changes

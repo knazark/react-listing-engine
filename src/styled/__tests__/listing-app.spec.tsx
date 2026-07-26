@@ -67,13 +67,19 @@ const CustomCard: ComponentType<IListingCardProps> = ({ item }) => {
 };
 
 describe('ListingApp (styled)', () => {
-	it('renders the full experience end to end via the /styled defaults, with no map provided', async () => {
-		render(<ListingApp<ListingRow, Filters> datasets={[makeDataset()]} config={{ debounceMs: 0 }} />);
+	it('renders the full experience end to end via the /styled defaults, going full-width with no map provided', async () => {
+		const { container } = render(
+			<ListingApp<ListingRow, Filters> datasets={[makeDataset()]} config={{ debounceMs: 0 }} />,
+		);
 
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
 		expect(screen.getByText('2 results')).toBeInTheDocument();
-		expect(screen.getByText('Map unavailable')).toBeInTheDocument();
+		// No map -> no map region + no "Map unavailable" fallback; the list body
+		// goes full-width (list-only) instead of reserving half the viewport.
+		expect(container.querySelector('.rle-map')).toBeNull();
+		expect(container.querySelector('.rle-body--list-only')).toBeInTheDocument();
+		expect(screen.queryByText('Map unavailable')).not.toBeInTheDocument();
 	});
 
 	it('a components.Card override renders OVER the /styled defaults, proving the merge', async () => {
@@ -91,10 +97,9 @@ describe('ListingApp (styled)', () => {
 
 		// Every OTHER slot still comes from the /styled defaults, not the
 		// package's bare/unstyled internal fallbacks -- StyledResultHeader's "N
-		// results" text and the styled map-unavailable fallback are both only
-		// ever rendered by the Styled* components.
+		// results" text is only ever rendered by the Styled* components. (No map
+		// was passed, so the layout is full-width with no map region to check.)
 		expect(screen.getByText('2 results')).toBeInTheDocument();
-		expect(screen.getByText('Map unavailable')).toBeInTheDocument();
 	});
 
 	it('renders end to end against a FakeMapProvider passed as map.provider, mounting it', async () => {

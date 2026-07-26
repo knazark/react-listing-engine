@@ -34,6 +34,13 @@ export interface IStyledListingLayoutProps {
 	toolbarEnd?: ReactNode;
 	/** Optional bottom-nav action button (e.g. "Add"), forwarded verbatim to `<BottomNav action={...} />`. Omit to render just Filters + the List|Map toggle. */
 	mobileAction?: IBottomNavAction;
+	/**
+	 * Whether a map is configured. When `false`, the map region is dropped and
+	 * the results list fills the full width as a multi-column grid, and the
+	 * mobile List|Map toggle is omitted (nothing to toggle to). Defaults to
+	 * `true` (the split list/map view). `ListingApp` passes `map != null`.
+	 */
+	hasMap?: boolean;
 	/** Whether the layout fetches the first page itself on mount (`engine.applyFilters({})`). Defaults to `true`. */
 	autoFetch?: boolean;
 	/** Forwarded verbatim to `<ListingMap center={mapCenter} />` -- see that component's "Auto-fit" doc comment. */
@@ -89,6 +96,7 @@ export function StyledListingLayout({
 	toolbarEnd,
 	mobileAction,
 	autoFetch = true,
+	hasMap = true,
 	mapCenter,
 	mapZoom,
 	className,
@@ -147,17 +155,22 @@ export function StyledListingLayout({
 
 			<MobileHeader search={searchBox} onFiltersClick={() => setSheetOpen(true)} action={mobileAction} />
 
-			<div className="rle-body rle-split" data-mobile-view={mobileView}>
+			<div
+				className={`rle-body ${hasMap ? 'rle-split' : 'rle-body--list-only'}`}
+				data-mobile-view={mobileView}
+			>
 				<div className="rle-list">
 					<ListingList className="rle-list-grid" />
 					<ListingPagination />
 				</div>
-				<div className="rle-map">
-					<ListingMap center={mapCenter} zoom={mapZoom} fallback={MAP_FALLBACK} />
-				</div>
+				{hasMap && (
+					<div className="rle-map">
+						<ListingMap center={mapCenter} zoom={mapZoom} fallback={MAP_FALLBACK} />
+					</div>
+				)}
 			</div>
 
-			<BottomNav view={mobileView} onViewChange={setMobileView} />
+			{hasMap && <BottomNav view={mobileView} onViewChange={setMobileView} />}
 
 			<BottomSheet
 				title="Filters"

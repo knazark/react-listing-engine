@@ -255,6 +255,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
 					autoFetch={autoFetch}
+					hasMap={map != null}
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 				/>
