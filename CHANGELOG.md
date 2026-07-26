@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.4.1
+
+### Patch Changes
+
+- Fix: an `iconUrl`-driven marker layer (e.g. nearby businesses) crashed the map. `resolveMarkerContent` passed the `google.maps.marker.PinElement` INSTANCE as an `AdvancedMarkerElement`'s `content`, but the instance is not a DOM node at runtime (the `@types` wrongly declare it `extends HTMLElement`) -- so Google's marker mount called `IntersectionObserver.observe()` on a non-Element and threw. It now passes the PinElement's `.element`.
+
 ## 0.4.0
 
 ### Minor Changes

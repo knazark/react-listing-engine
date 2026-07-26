@@ -69,7 +69,11 @@ function toRaw(handle: MapHandle): GoogleMapRaw {
 
 function resolveMarkerContent(marker: LayerMarkerSpec, markerLib: MarkerLibrary): HTMLElement | undefined {
   if (marker.element) return marker.element;
-  if (marker.iconUrl) return new markerLib.PinElement({ glyphSrc: marker.iconUrl });
+  // `.element` is the actual HTMLElement -- the `PinElement` instance itself is
+  // NOT a DOM node at runtime (despite `@types/google.maps` declaring it
+  // `extends HTMLElement`), so passing the instance as `content` makes Google's
+  // marker mount call `IntersectionObserver.observe()` on a non-Element and throw.
+  if (marker.iconUrl) return new markerLib.PinElement({ glyphSrc: marker.iconUrl }).element;
   // Neither given: leave `content` unset so AdvancedMarkerElement falls back to its own
   // built-in default PinElement (Google's documented default for `content`).
   return undefined;

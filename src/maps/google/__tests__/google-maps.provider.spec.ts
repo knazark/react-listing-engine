@@ -126,6 +126,17 @@ class FakeAdvancedMarkerElement {
   }
 }
 
+// Models the real `google.maps.marker.PinElement`: the INSTANCE is not a DOM
+// node -- the HTMLElement lives on its `.element` getter. (The `@types` wrongly
+// say `PinElement extends HTMLElement`; the runtime does not.)
+class FakePinElement {
+  readonly element: HTMLElement;
+  constructor(opts?: { glyphSrc?: string | URL | null }) {
+    this.element = document.createElement('div');
+    this.element.dataset.glyphSrc = String(opts?.glyphSrc ?? '');
+  }
+}
+
 let fitBoundsCalls: Bounds[] = [];
 let createdMarkers: FakeAdvancedMarkerElement[] = [];
 let mapConstructorCalls: Array<{ el: HTMLElement; opts: { center: unknown; zoom: unknown; mapId: unknown } }> = [];
@@ -143,7 +154,7 @@ const importLibraryMock = vi.fn(async (name: string) => {
     };
   }
   if (name === 'marker') {
-    return { AdvancedMarkerElement: FakeAdvancedMarkerElement };
+    return { AdvancedMarkerElement: FakeAdvancedMarkerElement, PinElement: FakePinElement };
   }
   throw new Error(`unexpected library: ${name}`);
 });
@@ -272,6 +283,26 @@ describe('googleProvider', () => {
     expect(createdMarkers).toHaveLength(2);
     expect(createdMarkers[0].position).toEqual({ lat: 1, lng: 1 });
     expect(createdMarkers[1].position).toEqual({ lat: 2, lng: 2 });
+  });
+
+  it('renders an iconUrl marker as the PinElement.element (a real HTMLElement), not the PinElement instance', async () => {
+    const provider = googleProvider({ apiKey: 'k' });
+    const handle = await provider.mount(document.createElement('div'), {});
+    const layer = makeLayer({
+      markers: [{ id: 'biz', position: { lat: 1, lng: 1 }, iconUrl: 'https://example.test/icon.png' }],
+    });
+
+    provider.renderLayer(handle, layer);
+
+    // Regression: `resolveMarkerContent` used to return the PinElement INSTANCE,
+    // which is not a DOM node at runtime -- Google's marker mount then called
+    // `IntersectionObserver.observe()` on a non-Element and threw, crashing any
+    // iconUrl-driven layer (e.g. nearby businesses). Content must be the
+    // PinElement's `.element`.
+    const content = createdMarkers[0].content;
+    expect(content).toBeInstanceOf(HTMLElement);
+    expect(content).not.toBeInstanceOf(FakePinElement);
+    expect((content as HTMLElement).dataset.glyphSrc).toBe('https://example.test/icon.png');
   });
 
   it('re-calling renderLayer for the same layer.id replaces markers instead of duplicating them', async () => {
