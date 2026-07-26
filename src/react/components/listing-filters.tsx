@@ -10,8 +10,8 @@ export interface IListingFiltersProps {
    * styling hook -- this component stays structure-only, so it never bakes
    * in its own layout beyond the `space-y-5` fallback below. Pass a
    * horizontal row (e.g. `"flex flex-wrap items-end gap-3"`) to flow filter
-   * groups inline instead of stacking them, as `/shadcn`'s `ListingLayout`
-   * does for its top filter bar.
+   * groups inline instead of stacking them, as the `/styled` adapter's
+   * `StyledListingLayout` does for its top filter bar.
    */
   className?: string;
   /** ClassName applied to each individual filter group's wrapper `<div>` (including the string-placeholder case). */
@@ -37,7 +37,7 @@ export interface IListingFiltersProps {
  *   `"text"`/`"range"`/`"toggle"`): there is no shared named-control registry
  *   yet, so this renders an inert `<div data-filter={def.key} />` placeholder.
  *   Wiring a real named-control registry (so `"range"` etc. resolve to an
- *   actual control, likely in the `/shadcn` adapter) is a documented future
+ *   actual control) is a documented future
  *   enhancement, not attempted in this task.
  *
  * Each filter group is wrapped in its own `<div>`: when `def.label` is set,

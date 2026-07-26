@@ -16,7 +16,7 @@ interface IStyledPopupViewModel {
  * accessible close button. `role="group"` + `aria-label` (rather than
  * `role="dialog"`) since this is a non-modal, non-focus-trapped popup
  * anchored to a map marker -- `dialog` without modality/focus management
- * would misrepresent it to AT users. Mirrors `/shadcn`'s `DefaultPopup`.
+ * would misrepresent it to AT users.
  */
 export function StyledPopup({ entity, onClose }: IListingPopupProps) {
 	const vm = (entity ?? {}) as Partial<IStyledPopupViewModel>;

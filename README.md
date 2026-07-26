@@ -1,15 +1,15 @@
 # react-listing-engine
 
-Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a shadcn-compatible styled adapter. Drop into property search, business directories, store locators, or any map+list browse experience.
+Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a Tailwind-free styled adapter. Drop into property search, business directories, store locators, or any map+list browse experience.
 
 ## Features
 
-- **Headless core + React bindings.** `~/core` is framework-agnostic TypeScript (no React import); `react-listing-engine` adds hooks and compound components on top. The styled `/shadcn` adapter is opt-in.
+- **Headless core + React bindings.** `~/core` is framework-agnostic TypeScript (no React import); `react-listing-engine` adds hooks and compound components on top. The Tailwind-free styled adapter (the turnkey `ListingApp` + `react-listing-engine/styles.css`) is opt-in.
 - **Generic over any entity.** Implement `EntityAdapter<TEntity, TFilters>` (`list`, `getPoints`, optional `getById`) against your own API — the engine never assumes a shape. URL serialization is a separate concern, handled by `UrlSyncController` (see `withUrlSync`), not the adapter.
 - **Fully customizable filters.** `FilterRegistry` supports `add` / `remove` / `reorder` / `replace` at runtime, not just at setup.
 - **Multiple marker layers.** `DatasetRegistry` composes any number of layers (properties, businesses, …) onto one map; each is its own `DatasetDefinition` with its own adapter and marker renderer.
 - **Google Maps behind a provider seam.** `MapProvider` is an interface — `googleProvider({ apiKey })` is the shipped implementation. The API key always comes from your own config; there is no hardcoded fallback.
-- **Component injection.** `ListingComponentsProvider` overrides any UI slot (`Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`) — anything not provided falls back to an unstyled (or, with `/shadcn`, styled) default. `Marker` and `Popup` are defined on `IListingComponents` but **not yet wired into the map's render output** — `ListingMap` currently renders markers via each dataset's `marker.iconUrl`/`marker.element` only; injecting `Marker`/`Popup` today has no visible effect.
+- **Component injection.** `ListingComponentsProvider` overrides any UI slot (`Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`) — anything not provided falls back to an unstyled (or, with the `/styled` adapter, styled) default. `Marker` and `Popup` are defined on `IListingComponents` but **not yet wired into the map's render output** — `ListingMap` currently renders markers via each dataset's `marker.iconUrl`/`marker.element` only; injecting `Marker`/`Popup` today has no visible effect.
 - **URL sync.** `UrlSyncController` (via `withUrlSync`) keeps filters in sync with your router/history without the engine depending on a specific router.
 - **Dual ESM + CJS, full TypeScript types.** `sideEffects: false`, tree-shakeable subpaths, `'use client'` banners for Next.js App Router.
 
@@ -27,20 +27,15 @@ pnpm add react-listing-engine
 
 ## Quickstart
 
-Minimal setup — one dataset, one filter, Google Maps, and the styled `/shadcn` layout. Define your own entity + filter shapes and back them with an `EntityAdapter`:
+Minimal setup — one dataset, one filter, and Google Maps, rendered by the turnkey `ListingApp` (it wires the provider, the styled defaults, and the layout together). Define your own entity + filter shapes and back them with an `EntityAdapter`:
 
 ```tsx
 import {
-  composeListingProviders,
-  ListingProvider,
-  withDataset,
-  withFilters,
-  withMap,
+  ListingApp,
   type EntityAdapter,
   type FilterControlProps,
 } from 'react-listing-engine';
-import { ListingComponentsProviderWithDefaults, ListingLayout } from 'react-listing-engine/shadcn';
-import { googleProvider } from 'react-listing-engine/maps/google';
+import 'react-listing-engine/styles.css';
 
 interface Property { id: string; title: string; price: number; lat: number; lng: number }
 interface Filters { q?: string }
@@ -55,25 +50,19 @@ const SearchControl = ({ onChange, value }: FilterControlProps<string>) => (
 
 export function PropertySearch() {
   return (
-    <ListingProvider<Property, Filters>
-      {...composeListingProviders<Filters>(
-        withMap<Filters>(googleProvider({ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY! })),
-        withDataset({ id: 'properties', adapter, marker: {} }),
-        withFilters<Filters>(reg =>
-          reg.add<string>({
-            key: 'q',
-            order: 0,
-            render: SearchControl,
-            toParams: v => ({ q: v || undefined }),
-            fromParams: f => f.q ?? '',
-          }),
-        ),
-      )}
-    >
-      <ListingComponentsProviderWithDefaults>
-        <ListingLayout />
-      </ListingComponentsProviderWithDefaults>
-    </ListingProvider>
+    <ListingApp<Property, Filters>
+      datasets={[{ id: 'properties', adapter, marker: {} }]}
+      filters={reg =>
+        reg.add<string>({
+          key: 'q',
+          order: 0,
+          render: SearchControl,
+          toParams: v => ({ q: v || undefined }),
+          fromParams: f => f.q ?? '',
+        })
+      }
+      map={{ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY!, mapId: 'YOUR_MAP_ID' }}
+    />
   );
 }
 ```
@@ -84,7 +73,7 @@ The engine is layered so you can go as deep as you need and stop:
 
 1. **Data** — implement `EntityAdapter<TEntity, TFilters>` against your own API. Nothing in the engine assumes a specific backend or entity shape.
 2. **Structure** — compose the provider with `composeListingProviders(withMap(...), withDataset(...), withFilters(...), withUrlSync(...), withInitialFilters(...), withPrimaryDataset(...), withConfig(...))`. Mutate filters via `FilterRegistry` (`add`/`remove`/`reorder`/`replace`) and layers via `DatasetRegistry` (`add`/`get`/`has`/`list`/`visibleIds`).
-3. **Presentation** — swap any slot via `ListingComponentsProvider` (or start from `ListingComponentsProviderWithDefaults` for the `/shadcn` look and override only what you need). Injectable slots: `Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`. `Marker`/`Popup` are defined but not yet wired into the map's render output (see the Features note above) — every other slot renders as described.
+3. **Presentation** — swap any slot via `ListingComponentsProvider` (or start from `ListingComponentsProviderWithDefaults` for the styled look and override only what you need). Injectable slots: `Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`. `Marker`/`Popup` are defined but not yet wired into the map's render output (see the Features note above) — every other slot renders as described.
 4. **Layout** — skip `ListingLayout` entirely and arrange the structure-only compound components yourself: `ListingList`, `ListingMap`, `ListingFilters`, `ListingResultHeader`, `ListingToolbar`, `ListingPagination`.
 
 ## Google Maps setup
@@ -121,20 +110,23 @@ Additional datasets are **map-only** layers: only the primary dataset (the first
 
 ## Styled adapter
 
-`react-listing-engine/shadcn` ships a full default UI (`ListingLayout` plus every `Default*` slot component) built on Tailwind utility classes matching shadcn's token conventions:
+The default UI is the **Tailwind-free** `/styled` adapter: the turnkey `ListingApp` (above), or the lower-level `StyledListingLayout` + `StyledComponentsProviderWithDefaults` from `react-listing-engine/styled`. It ships **self-contained CSS** — no Tailwind, no build step, no token setup. Import the stylesheet once:
 
 ```tsx
-import { ListingComponentsProviderWithDefaults, ListingLayout } from 'react-listing-engine/shadcn';
+import { ListingApp } from 'react-listing-engine';
+import 'react-listing-engine/styles.css';
 ```
 
-It needs Tailwind to see its class names and the shadcn-style CSS variables to be defined. Either:
+Every visual value is a `--rle-*` CSS variable declared on `:root`, so you retheme the whole UI by overriding a subset in your own CSS loaded *after* the stylesheet:
 
-- point Tailwind's `@source` at the package's compiled output so its classes aren't purged:
-  ```css
-  @import "tailwindcss";
-  @source "../node_modules/react-listing-engine/dist/**/*.{js,cjs}";
-  ```
-- or define the semantic tokens it reads yourself (`--color-background`, `--color-foreground`, `--color-card`, `--color-popover`, `--color-border`, `--color-primary`, `--color-secondary`, `--color-muted`, `--color-accent`, `--color-destructive`, plus `-foreground` variants), the same set any shadcn-based project already ships.
+```css
+@import 'react-listing-engine/styles.css';
+
+:root {
+  --rle-primary: #0ea5e9;
+  --rle-radius: 4px;
+}
+```
 
 ## Hooks
 

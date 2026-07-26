@@ -14,8 +14,7 @@ afterEach(() => {
 });
 
 // -----------------------------------------------------------------------------
-// Fixtures -- same shape/spirit as `/shadcn`'s `listing-app.spec.tsx` and
-// `/styled`'s own `layout.spec.tsx`.
+// Fixtures -- same shape/spirit as `/styled`'s own `layout.spec.tsx`.
 // -----------------------------------------------------------------------------
 
 interface Filters {

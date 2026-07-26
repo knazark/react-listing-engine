@@ -72,8 +72,8 @@ export interface IListingComponents {
 }
 
 // -----------------------------------------------------------------------------
-// Minimal, UNSTYLED fallbacks for every slot. The `/shadcn` adapter ships
-// prettier drop-in replacements later — these exist so the engine is usable
+// Minimal, UNSTYLED fallbacks for every slot. The `/styled` adapter ships
+// prettier drop-in replacements — these exist so the engine is usable
 // (and accessible) with zero consumer setup.
 // -----------------------------------------------------------------------------
 

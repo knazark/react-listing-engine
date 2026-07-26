@@ -1,8 +1,8 @@
 {
   "name": "react-listing-engine",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "license": "MIT",
-  "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a shadcn-compatible styled adapter.",
+  "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a Tailwind-free styled adapter.",
   "funding": [
     {
       "type": "github",
@@ -26,8 +26,7 @@
     "typescript",
     "nextjs",
     "react18",
-    "react19",
-    "shadcn"
+    "react19"
   ],
   "author": "knazark",
   "type": "module",
@@ -42,11 +41,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./shadcn": {
-      "types": "./dist/shadcn/index.d.ts",
-      "import": "./dist/shadcn/index.js",
-      "require": "./dist/shadcn/index.cjs"
     },
     "./styled": {
       "types": "./dist/styled/index.d.ts",

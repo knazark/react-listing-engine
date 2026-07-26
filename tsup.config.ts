@@ -5,7 +5,6 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
-    'shadcn/index': 'src/shadcn/index.ts',
     'styled/index': 'src/styled/index.ts',
     'maps/google/index': 'src/maps/google/index.ts',
     'testing/index': 'src/testing/index.ts',

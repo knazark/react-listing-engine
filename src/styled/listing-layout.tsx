@@ -21,8 +21,8 @@ import { MobileHeader } from './mobile-header';
 
 export interface IStyledListingLayoutProps {
 	/**
-	 * Optional header search box, LIBRARY-wired (unlike `/shadcn`'s
-	 * consumer-managed `search`): name the `TFilters` field it drives via
+	 * Optional header search box, LIBRARY-wired: name the `TFilters` field it
+	 * drives via
 	 * `filterKey`, and the layout reads the current value from the engine's
 	 * filters and writes edits back with `applyFilters({ [filterKey]: value ||
 	 * undefined })`. Rendered in BOTH the desktop filter bar and the mobile
@@ -99,12 +99,11 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
 }
 
 /**
- * Full, responsive, Tailwind-free listing experience -- the `/styled`
- * counterpart to `/shadcn`'s `ListingLayout`, built from the same
+ * Full, responsive, Tailwind-free listing experience -- built from the
  * structure-only compound components (`~/react`) plus the injected
- * `Styled*` slot components, but with a richer mobile experience: a bottom
- * nav (`BottomNav`) and a bottom sheet (`BottomSheet`) for filters, instead
- * of `/shadcn`'s inline mobile toggle bar. Every class used here is one of
+ * `Styled*` slot components, with a rich mobile experience: a bottom
+ * nav (`BottomNav`) and a bottom sheet (`BottomSheet`) for filters. Every
+ * class used here is one of
  * the `.rle-*` layout classes added to `styles.css` alongside this file --
  * no Tailwind, no inline styles, no other stylesheet required.
  *
@@ -136,7 +135,7 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
  *   control already applies live via its own `onChange`, so there is nothing
  *   left to commit).
  * - Fetches the first page itself on mount (`engine.applyFilters({})`) by
- *   default, exactly like `/shadcn`'s `ListingLayout` -- pass `autoFetch={false}`
+ *   default -- pass `autoFetch={false}`
  *   to opt out and drive the first fetch yourself.
  */
 export function StyledListingLayout({
@@ -175,9 +174,9 @@ export function StyledListingLayout({
 	useEffect(() => {
 		if (autoFetch === false) return;
 		void engine.applyFilters({});
-		// Same reasoning as `/shadcn`'s `ListingLayout`: `engine` is stable
-		// across re-renders of the same `<ListingProvider>` (only changes on
-		// remount), so this fires once per mounted engine when autoFetch is on.
+		// `engine` is stable across re-renders of the same `<ListingProvider>`
+		// (only changes on remount), so this fires once per mounted engine when
+		// autoFetch is on.
 	}, [engine, autoFetch]);
 
 	const handleClearAll = (): void => {

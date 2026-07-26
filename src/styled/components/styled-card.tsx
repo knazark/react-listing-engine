@@ -9,8 +9,8 @@ import { formatStyledPrice } from '../utils/format-price';
 // other slot -- see `~/react/components-provider.tsx`'s docstring), so this
 // is read DEFENSIVELY via a cast, never assumed to be the caller's real
 // TEntity. Every field is optional and simply omitted from the render when
-// absent. Mirrors `/shadcn`'s `DefaultCard` view-model exactly -- only the
-// class names differ (`.rle-*` instead of Tailwind utilities).
+// absent. The view-model is styling-agnostic; only the `.rle-*` class names
+// are specific to this styled adapter.
 interface IStyledCardViewModel {
 	title?: string;
 	subtitle?: string;

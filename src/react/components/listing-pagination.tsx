@@ -12,8 +12,8 @@ import { useListingState } from '../hooks/use-listing-state';
  *
  * Renders a plain `<button>` rather than an injected component: `useListingComponents()`
  * (`IListingComponents`) has no `Button` slot yet, so there is nothing to
- * delegate to here. Wiring this up to a real Button slot (and to the shadcn
- * adapter's styled Button) is a documented future enhancement once that slot
+ * delegate to here. Wiring this up to a real Button slot (and a styled Button
+ * in the `/styled` adapter) is a documented future enhancement once that slot
  * exists.
  */
 export function ListingPagination() {

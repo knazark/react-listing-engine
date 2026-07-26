@@ -21,20 +21,19 @@ import { styledDefaultComponents } from './default-components';
 import { StyledListingLayout, type IStyledListingLayoutProps } from './listing-layout';
 
 /**
- * Same two-shape `map` prop as `/shadcn`'s `ListingApp` (see that file's
- * `useResolvedMap` doc comment for why the `{ apiKey }` shorthand is resolved
- * via a dynamic `import()` rather than a static one -- the reasoning is
- * identical here). Re-declared rather than imported from `~/shadcn`: the two
- * styled adapters are SIBLINGS, not a hierarchy -- `/styled` never depends on
- * `/shadcn` (or vice versa), each is self-contained against `~/core`/`~/react`.
+ * Two-shape `map` prop: pass a ready `MapProvider`, or the `{ apiKey, mapId? }`
+ * shorthand. The shorthand is resolved via a DYNAMIC `import()` of
+ * `~/maps/google` (see `useResolvedMap` below) rather than a static one, so an
+ * app that never sets `map` doesn't pull `@googlemaps/js-api-loader` into its
+ * bundle.
  */
 export type ListingAppMapProp =
 	| { provider: MapProvider; center?: LatLng; zoom?: number }
 	| { apiKey: string; mapId?: string; center?: LatLng; zoom?: number };
 
-// TEntity intentionally omitted here -- same reasoning as `/shadcn`'s
-// `ListingAppProps<TFilters>`: `datasets` is entity-erased (`DatasetDefinition<any,
-// TFilters>[]`, see its own field doc below), so nothing in this interface's
+// TEntity intentionally omitted here: `datasets` is entity-erased
+// (`DatasetDefinition<any, TFilters>[]`, see its own field doc below), so
+// nothing in this interface's
 // BODY would ever reference a `TEntity` type parameter, and `noUnusedLocals`
 // rejects a declared-but-unreferenced one (verified: TS6133). `ListingApp`
 // itself still declares `<TEntity, TFilters>` -- supplied at the call site,
@@ -106,9 +105,8 @@ interface MapResolution {
 }
 
 /**
- * Resolves `ListingAppProps.map` into a concrete `MapProvider`, mirroring
- * `/shadcn`'s `useResolvedMap` EXACTLY (see that hook's doc comment for the
- * full reasoning): a static `import { googleProvider } from '~/maps/google'`
+ * Resolves `ListingAppProps.map` into a concrete `MapProvider`: a static
+ * `import { googleProvider } from '~/maps/google'`
  * at this module's top level would statically pull in `@googlemaps/js-api-loader`
  * (an OPTIONAL peer dep) for every `/styled` consumer, even ones who never
  * pass `apiKey`. The `{ apiKey }` shorthand is therefore resolved via a
@@ -175,9 +173,8 @@ function FiltersChangeEmitter<TFilters>({ onFiltersChange }: FiltersChangeEmitte
 }
 
 /**
- * Turnkey, batteries-included, Tailwind-free entry point -- the `/styled`
- * counterpart to `/shadcn`'s `ListingApp`, and (per `src/index.ts`) the
- * package's MAIN-ENTRY default: `import { ListingApp } from
+ * Turnkey, batteries-included, Tailwind-free entry point -- and (per
+ * `src/index.ts`) the package's MAIN-ENTRY default: `import { ListingApp } from
  * 'react-listing-engine'` gives you this component. Pass datasets + filters +
  * a map + component overrides, and `ListingApp` composes
  * `composeListingProviders(...)`, `<ListingProvider>`, the `/styled` defaults,
@@ -198,8 +195,8 @@ function FiltersChangeEmitter<TFilters>({ onFiltersChange }: FiltersChangeEmitte
  * nesting would silently discard every un-overridden `/styled` default
  * instead of keeping it.
  *
- * URL SYNC IS EVENT-BASED, NOT INTERNAL: unlike `/shadcn`'s `ListingApp`,
- * this component takes no `urlSync` prop and never constructs/starts a
+ * URL SYNC IS EVENT-BASED, NOT INTERNAL: this component takes no `urlSync`
+ * prop and never constructs/starts a
  * `UrlSyncController` -- it never touches `window.history`. Instead it
  * accepts `initialFilters` (hydrate FROM the consumer's URL) and emits
  * `onFiltersChange` (write TO the consumer's URL/router) -- see both props'

@@ -13,7 +13,7 @@ import { styledDefaultComponents } from './default-components';
  * of the box -- pair it with `import 'react-listing-engine/styles.css'`; use
  * `ListingComponentsProvider` directly (with your own components for some or
  * all slots) otherwise -- the two compose fine since `ListingComponentsProvider`
- * falls back per-slot. Mirrors `/shadcn`'s `ListingComponentsProviderWithDefaults`.
+ * falls back per-slot.
  */
 export function StyledComponentsProviderWithDefaults({ children }: { children: ReactNode }) {
 	return <ListingComponentsProvider {...styledDefaultComponents}>{children}</ListingComponentsProvider>;

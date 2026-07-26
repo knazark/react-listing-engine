@@ -46,8 +46,7 @@ function queryParamsEqual(a: QueryParams, b: QueryParams): boolean {
  * `onFiltersChange` out; see that file's doc comment), so the library never
  * touches `window.history` by default. This class remains exported for
  * consumers who explicitly want the library to own history writes/reads
- * itself (e.g. via `/shadcn`'s `ListingApp.urlSync`, or wiring it directly
- * against a hand-built engine).
+ * itself, by wiring it directly against a hand-built engine.
  *
  * Echo-loop guard: both subscriptions below are driven by the SAME
  * `isSyncing` flag. `ListingEngine.applyFilters()` and `MemoryHistoryPort`

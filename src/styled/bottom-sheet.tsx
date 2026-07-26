@@ -14,7 +14,7 @@ export interface IBottomSheetProps {
 /**
  * Dependency-free mobile bottom sheet -- the `/styled` adapter's own modal
  * primitive, used by `StyledListingLayout` for the mobile filters panel.
- * Deliberately NOT the `~/shadcn` adapter's Radix-based `Sheet`: `/styled`
+ * Deliberately dependency-free (no Radix or other UI-library sheet): `/styled`
  * ships zero UI dependencies beyond `react`/`react-dom`, so this is a small
  * hand-rolled implementation covering just what a filters sheet needs --
  * portal, backdrop-click/Escape-to-close, a body-scroll lock, and the

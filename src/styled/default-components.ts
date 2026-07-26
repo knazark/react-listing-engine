@@ -15,8 +15,7 @@ import {
 
 /**
  * Every `/styled` default, keyed by slot -- the single source of truth for
- * `StyledComponentsProviderWithDefaults`, mirroring `/shadcn`'s
- * `shadcnDefaultComponents`.
+ * `StyledComponentsProviderWithDefaults`.
  *
  * Kept as a plain object, not JSX, so a caller can merge it with
  * `{ ...styledDefaultComponents, ...overrides }` and hand the result to ONE
