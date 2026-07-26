@@ -13,34 +13,21 @@ export interface IBottomNavAction {
 export interface IBottomNavProps {
 	view: BottomNavView;
 	onViewChange(view: BottomNavView): void;
-	onFiltersClick(): void;
-	action?: IBottomNavAction;
 }
 
 /**
- * Mobile-only bottom navigation bar (`.rle-bottom-nav`, hidden at 768px+ by
- * CSS -- see `styles.css`): a **Filters** button that opens the mobile
- * `BottomSheet`, an optional caller-supplied `action` button (e.g. "Add"),
- * and a **List | Map** segmented toggle (`.rle-viewtoggle`) that drives which
- * of `StyledListingLayout`'s two full-area panels is visible. No lucide/icon
- * library dependency -- every icon here is a small inline SVG, matching the
- * rest of `/styled`'s zero-extra-dependency policy.
+ * Mobile-only bottom navigation (`.rle-bottom-nav`, hidden at 768px+ by CSS --
+ * see `styles.css`): a floating **List | Map** segmented toggle
+ * (`.rle-viewtoggle`) that drives which of `StyledListingLayout`'s two
+ * full-area panels is visible. The **Filters** button and the optional caller
+ * action (e.g. "Save") live in the mobile header (`MobileHeader`) instead, so
+ * the footer pill carries the view toggle alone. No lucide/icon library
+ * dependency -- every icon here is a small inline SVG, matching the rest of
+ * `/styled`'s zero-extra-dependency policy.
  */
-export function BottomNav({ view, onViewChange, onFiltersClick, action }: IBottomNavProps) {
+export function BottomNav({ view, onViewChange }: IBottomNavProps) {
 	return (
 		<nav className="rle-bottom-nav" aria-label="Listing navigation">
-			<button type="button" className="rle-bottom-nav__btn" onClick={onFiltersClick}>
-				<FiltersIcon />
-				<span>Filters</span>
-			</button>
-
-			{action && (
-				<button type="button" className="rle-bottom-nav__btn" onClick={action.onClick}>
-					{action.icon ?? <AddIcon />}
-					<span>{action.label}</span>
-				</button>
-			)}
-
 			<div className="rle-viewtoggle" role="group" aria-label="View">
 				<button
 					type="button"
@@ -65,7 +52,7 @@ export function BottomNav({ view, onViewChange, onFiltersClick, action }: IBotto
 	);
 }
 
-function FiltersIcon() {
+export function FiltersIcon() {
 	return (
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -132,7 +119,7 @@ function MapIcon() {
 	);
 }
 
-function AddIcon() {
+export function AddIcon() {
 	return (
 		<svg
 			xmlns="http://www.w3.org/2000/svg"

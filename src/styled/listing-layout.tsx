@@ -11,15 +11,25 @@ import {
 	ListingResultHeader,
 	useListing,
 	useListingComponents,
+	useListingFilters,
 	useListingResults,
 } from '~/react';
 
 import { BottomNav, type IBottomNavAction, type BottomNavView } from './bottom-nav';
 import { BottomSheet } from './bottom-sheet';
+import { MobileHeader } from './mobile-header';
 
 export interface IStyledListingLayoutProps {
-	/** Optional search box -- same shape/reasoning as `/shadcn`'s `ListingLayout.search`; omitted entirely when not passed. */
-	search?: { value: string; onChange: (value: string) => void; placeholder?: string };
+	/**
+	 * Optional header search box, LIBRARY-wired (unlike `/shadcn`'s
+	 * consumer-managed `search`): name the `TFilters` field it drives via
+	 * `filterKey`, and the layout reads the current value from the engine's
+	 * filters and writes edits back with `applyFilters({ [filterKey]: value ||
+	 * undefined })`. Rendered in BOTH the desktop filter bar and the mobile
+	 * header. Do NOT also register `filterKey` as a `ListingFilters` control --
+	 * it would then render twice. Omitted entirely when not passed.
+	 */
+	search?: { filterKey: string; placeholder?: string };
 	/** Extra content rendered at the end of the desktop filter bar, alongside `ListingResultHeader` (e.g. a sort control). */
 	toolbarEnd?: ReactNode;
 	/** Optional bottom-nav action button (e.g. "Add"), forwarded verbatim to `<BottomNav action={...} />`. Omit to render just Filters + the List|Map toggle. */
@@ -86,9 +96,24 @@ export function StyledListingLayout({
 	const engine = useListing();
 	const { Search } = useListingComponents();
 	const results = useListingResults();
+	const { filters } = useListingFilters();
 
 	const [mobileView, setMobileView] = useState<BottomNavView>('list');
 	const [sheetOpen, setSheetOpen] = useState(false);
+
+	// Library-wired search: read the current value straight off the engine's
+	// filters and write edits back through `applyFilters`, so the SAME box in
+	// the desktop bar and the mobile header both drive `search.filterKey`
+	// without the consumer plumbing value/onChange (see `search` prop doc).
+	const searchBox = search
+		? {
+				value: String((filters as Record<string, unknown>)[search.filterKey] ?? ''),
+				onChange: (value: string): void => {
+					void engine.applyFilters({ [search.filterKey]: value || undefined } as Partial<unknown>);
+				},
+				placeholder: search.placeholder,
+			}
+		: undefined;
 
 	useEffect(() => {
 		if (autoFetch === false) return;
@@ -108,7 +133,9 @@ export function StyledListingLayout({
 	return (
 		<div className={className ? `rle-app ${className}` : 'rle-app'}>
 			<div className="rle-filter-bar">
-				{search && <Search value={search.value} onChange={search.onChange} placeholder={search.placeholder} />}
+				{searchBox && (
+					<Search value={searchBox.value} onChange={searchBox.onChange} placeholder={searchBox.placeholder} />
+				)}
 
 				<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" />
 
@@ -117,6 +144,8 @@ export function StyledListingLayout({
 					{toolbarEnd}
 				</div>
 			</div>
+
+			<MobileHeader search={searchBox} onFiltersClick={() => setSheetOpen(true)} action={mobileAction} />
 
 			<div className="rle-body rle-split" data-mobile-view={mobileView}>
 				<div className="rle-list">
@@ -128,12 +157,7 @@ export function StyledListingLayout({
 				</div>
 			</div>
 
-			<BottomNav
-				view={mobileView}
-				onViewChange={setMobileView}
-				onFiltersClick={() => setSheetOpen(true)}
-				action={mobileAction}
-			/>
+			<BottomNav view={mobileView} onViewChange={setMobileView} />
 
 			<BottomSheet
 				title="Filters"

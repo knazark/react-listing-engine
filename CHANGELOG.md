@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.2.0
+
+### Minor Changes
+
+- `/styled`: add a mobile header (search + Filters + optional action) and move the List|Map toggle into the footer, so the compact mobile chrome mirrors the desktop filter bar. The `search` prop is now library-wired -- pass `{ filterKey }` (the `TFilters` field it drives) instead of the consumer-managed `{ value, onChange }`; the layout reads/writes that field on the engine directly.
+
 ## 0.1.1
 
 ### Patch Changes

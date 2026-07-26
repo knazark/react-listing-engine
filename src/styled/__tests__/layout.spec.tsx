@@ -87,7 +87,45 @@ describe('StyledListingLayout', () => {
 		expect(filterBar).toContainElement(screen.getByText('2 results'));
 	});
 
-	it('renders the mobile bottom nav with a Filters button and a List|Map toggle', async () => {
+	it('drives its filterKey directly on the engine when a `search` box is given', async () => {
+		// No registered filter -- the header/desktop-bar search box is the only
+		// thing touching `q`, proving the LIBRARY wires `search.filterKey` to the
+		// engine (value read from filters, edits via applyFilters).
+		const map = new FakeMapProvider();
+		const composed = composeListingProviders<Filters>(
+			withDataset<ListingRow, Filters>({
+				id: 'p',
+				adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
+				marker: { iconUrl: () => '' },
+			}),
+			withMap<Filters>(map),
+			withConfig<Filters>({ debounceMs: 0 }),
+		);
+
+		render(
+			<ListingProvider<ListingRow, Filters> {...composed}>
+				<StyledComponentsProviderWithDefaults>
+					<StyledListingLayout search={{ filterKey: 'q' }} />
+				</StyledComponentsProviderWithDefaults>
+			</ListingProvider>,
+		);
+
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+		expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
+
+		// The box renders in BOTH the desktop bar and the mobile header -- both
+		// are wired to the same engine field, so editing either drives `q`.
+		const boxes = screen.getAllByLabelText('Search');
+		expect(boxes.length).toBeGreaterThanOrEqual(2);
+		fireEvent.change(boxes[0], { target: { value: 'sunny' } });
+
+		await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
+		expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+		// The controlled value round-trips back through the engine into every box.
+		expect((screen.getAllByLabelText('Search')[1] as HTMLInputElement).value).toBe('sunny');
+	});
+
+	it('renders the Filters button (mobile header) and the List|Map toggle (footer nav)', async () => {
 		renderLayout();
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 
@@ -143,7 +181,7 @@ describe('StyledListingLayout', () => {
 		expect(body).toHaveAttribute('data-mobile-view', 'list');
 	});
 
-	it('fires mobileAction.onClick when the bottom-nav action button is clicked', async () => {
+	it('fires mobileAction.onClick when the header action button is clicked', async () => {
 		const onClick = vi.fn();
 		renderLayout({ label: 'Add', onClick });
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
@@ -152,7 +190,7 @@ describe('StyledListingLayout', () => {
 		expect(onClick).toHaveBeenCalledTimes(1);
 	});
 
-	it('omits the bottom-nav action button when mobileAction is not given', async () => {
+	it('omits the header action button when mobileAction is not given', async () => {
 		renderLayout();
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 

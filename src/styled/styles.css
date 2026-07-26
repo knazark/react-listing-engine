@@ -588,7 +588,6 @@
 	.rle-select,
 	.rle-dropdown,
 	.rle-btn,
-	.rle-bottom-nav__btn,
 	.rle-viewtoggle__btn,
 	.rle-sheet,
 	.rle-sheet-backdrop {
@@ -619,7 +618,6 @@
 .rle-list-grid,
 .rle-map,
 .rle-bottom-nav,
-.rle-bottom-nav__btn,
 .rle-viewtoggle,
 .rle-viewtoggle__btn,
 .rle-sheet-backdrop,
@@ -692,6 +690,78 @@
 
 .rle-filter-group {
 	min-width: 0;
+}
+
+/* -----------------------------------------------------------------------
+ * Mobile header -- shown below 768px (hidden at 768px+), the compact
+ * counterpart to the desktop `.rle-filter-bar`: the search input (grows to
+ * fill), a Filters button that opens the bottom sheet, and an optional
+ * trailing action (e.g. Save). The List|Map toggle lives in the floating
+ * footer (`.rle-bottom-nav`) instead.
+ * --------------------------------------------------------------------- */
+
+.rle-mobile-header {
+	display: none;
+}
+
+@media (max-width: 767px) {
+	.rle-mobile-header {
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: var(--rle-space);
+		background: var(--rle-surface);
+		border-bottom: 1px solid var(--rle-border);
+	}
+}
+
+.rle-mobile-header__search {
+	flex: 1;
+	min-width: 0;
+}
+
+.rle-mobile-header__btn {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 40px;
+	padding: 0 12px;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-sm);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease;
+}
+
+.rle-mobile-header__btn svg {
+	width: 18px;
+	height: 18px;
+}
+
+.rle-mobile-header__btn:hover {
+	background: var(--rle-muted-bg);
+}
+
+.rle-mobile-header__btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-mobile-header__btn--icon {
+	width: 40px;
+	padding: 0;
+	color: var(--rle-muted);
 }
 
 /* -----------------------------------------------------------------------
@@ -787,45 +857,6 @@
 		box-shadow: var(--rle-shadow);
 		transform: translateX(-50%);
 	}
-}
-
-.rle-bottom-nav__btn {
-	display: flex;
-	flex: 1;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: 2px;
-	min-height: 44px;
-	padding: 6px 4px;
-	background: transparent;
-	border: none;
-	color: var(--rle-muted);
-	font-size: var(--rle-fs-sm);
-	font-weight: 500;
-	line-height: 1.2;
-	cursor: pointer;
-	transition:
-		color 150ms ease,
-		background-color 150ms ease;
-}
-
-.rle-bottom-nav__btn svg {
-	width: 20px;
-	height: 20px;
-}
-
-.rle-bottom-nav__btn:hover {
-	background: var(--rle-muted-bg);
-}
-
-.rle-bottom-nav__btn:focus-visible {
-	outline: none;
-	box-shadow: inset 0 0 0 2px var(--rle-ring);
-}
-
-.rle-bottom-nav__btn--active {
-	color: var(--rle-primary);
 }
 
 .rle-viewtoggle {
