@@ -116,6 +116,8 @@ const DEFAULT_MAP_ID = 'DEMO_MAP_ID';
 /** Internal state stashed behind `MapHandle.raw` -- needed by the synchronous `renderLayer`. */
 interface GoogleMapRaw {
   map: GoogleMap;
+  /** The element passed to `mount()` -- the Fullscreen API target for `toggleFullscreen`. */
+  containerEl: HTMLElement;
   markerLib: MarkerLibrary;
   /**
    * Which marker implementation this map uses, decided once at `mount` from whether `config.styles`
@@ -668,6 +670,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const resizeObserver = observeContainerResize(el, map, center);
       const raw: GoogleMapRaw = {
         map,
+        containerEl: el,
         markerLib,
         markerMode: useOverlayMode ? 'overlay' : 'advanced',
         layers: new Map(),
@@ -854,6 +857,34 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
           container.remove(); // belt-and-suspenders if onRemove never ran (never attached)
         },
       };
+    },
+
+    zoomIn(): void {
+      // No currently-mounted map -- nothing to zoom (mirrors `updateMarkerStates`).
+      if (!currentRaw) return;
+      currentRaw.map.setZoom((currentRaw.map.getZoom() ?? 0) + 1);
+    },
+
+    zoomOut(): void {
+      if (!currentRaw) return;
+      currentRaw.map.setZoom((currentRaw.map.getZoom() ?? 0) - 1);
+    },
+
+    toggleFullscreen(): void {
+      if (!currentRaw) return;
+      const el = currentRaw.containerEl;
+      // Feature-detected throughout -- older Safari and non-browser/test DOM
+      // environments don't implement the Fullscreen API at all, and this must
+      // never throw in that case (see this method's doc comment).
+      const fullscreenElement = document.fullscreenElement;
+      const isThisElementFullscreen =
+        fullscreenElement != null && (fullscreenElement === el || el.contains(fullscreenElement));
+
+      if (isThisElementFullscreen) {
+        if (typeof document.exitFullscreen === 'function') void document.exitFullscreen();
+      } else if (typeof el.requestFullscreen === 'function') {
+        void el.requestFullscreen();
+      }
     },
   };
 }

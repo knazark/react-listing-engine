@@ -230,4 +230,33 @@ describe('ListingApp (styled)', () => {
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
 	});
+
+	it('shows the mapControls node floating over the map, when a map is configured', async () => {
+		const map = new FakeMapProvider();
+
+		render(
+			<ListingApp<ListingRow, Filters>
+				datasets={[makeDataset()]}
+				config={{ debounceMs: 0 }}
+				map={{ provider: map }}
+				mapControls={<button data-testid="zi">+</button>}
+			/>,
+		);
+
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+		await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+		expect(screen.getByTestId('zi')).toBeInTheDocument();
+	});
+
+	it('renders no mapControls overlay when the prop is omitted', async () => {
+		const map = new FakeMapProvider();
+
+		const { container } = render(
+			<ListingApp<ListingRow, Filters> datasets={[makeDataset()]} config={{ debounceMs: 0 }} map={{ provider: map }} />,
+		);
+
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+		await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+		expect(container.querySelector('.pointer-events-none')).toBeNull();
+	});
 });

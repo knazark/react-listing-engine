@@ -38,6 +38,10 @@ export class FakeMapProvider implements MapProvider {
    * newest last -- lets a test assert an overlay was mounted/anchored/torn down.
    */
   readonly overlays: FakeOverlay[] = [];
+  /** Records each `zoomIn`/`zoomOut` call, in order, for assertions. */
+  readonly zoomCalls: Array<'in' | 'out'> = [];
+  /** Counts `toggleFullscreen` calls. */
+  fullscreenToggles = 0;
 
   private readonly boundsListeners = new Set<BoundsListener>();
   private readonly mapClickListeners = new Set<() => void>();
@@ -124,5 +128,17 @@ export class FakeMapProvider implements MapProvider {
         if (index !== -1) this.overlays.splice(index, 1);
       },
     };
+  }
+
+  zoomIn(): void {
+    this.zoomCalls.push('in');
+  }
+
+  zoomOut(): void {
+    this.zoomCalls.push('out');
+  }
+
+  toggleFullscreen(): void {
+    this.fullscreenToggles += 1;
   }
 }

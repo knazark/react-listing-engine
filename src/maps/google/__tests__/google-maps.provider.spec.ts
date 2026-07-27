@@ -66,6 +66,14 @@ class FakeMap {
     setCenterCalls.push(center);
   }
 
+  getZoom(): number | undefined {
+    return this.zoom as number | undefined;
+  }
+
+  setZoom(zoom: number): void {
+    this.zoom = zoom;
+  }
+
   trigger(event: string): void {
     for (const handler of this.listeners[event] ?? []) handler();
   }
@@ -545,6 +553,142 @@ describe('googleProvider', () => {
   it('updateMarkerStates before any mount is a no-op (no crash)', () => {
     const provider = googleProvider({ apiKey: 'k' });
     expect(() => provider.updateMarkerStates(1, 2)).not.toThrow();
+  });
+
+  describe('zoomIn / zoomOut', () => {
+    it('zoomIn increments the map\'s current zoom by 1 via getZoom/setZoom', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), { zoom: 10 });
+      const raw = handle.raw as { map: FakeMap };
+
+      provider.zoomIn();
+
+      expect(raw.map.getZoom()).toBe(11);
+    });
+
+    it('zoomOut decrements the map\'s current zoom by 1 via getZoom/setZoom', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), { zoom: 10 });
+      const raw = handle.raw as { map: FakeMap };
+
+      provider.zoomOut();
+
+      expect(raw.map.getZoom()).toBe(9);
+    });
+
+    it('zoomIn/zoomOut treat an undefined current zoom as 0 (defensive default -- e.g. a map SDK state where getZoom() hasn\'t settled yet)', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), { zoom: 10 });
+      const raw = handle.raw as { map: FakeMap };
+      // Force the exact edge case `?? 0` guards against, regardless of what `mount` itself defaults
+      // zoom to -- `getZoom()` returning `undefined` at the moment `zoomIn`/`zoomOut` reads it.
+      raw.map.zoom = undefined;
+      expect(raw.map.getZoom()).toBeUndefined();
+
+      provider.zoomIn();
+
+      expect(raw.map.getZoom()).toBe(1);
+    });
+
+    it('zoomIn/zoomOut before any mount are a no-op (no crash)', () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      expect(() => provider.zoomIn()).not.toThrow();
+      expect(() => provider.zoomOut()).not.toThrow();
+    });
+  });
+
+  describe('toggleFullscreen', () => {
+    afterEach(() => {
+      // Restore whatever this describe block's tests stubbed onto `document`/the
+      // container element, so no fake Fullscreen API state leaks into a later test.
+      // @ts-expect-error -- test-only cleanup of a property this suite adds
+      delete document.exitFullscreen;
+      // @ts-expect-error -- test-only cleanup of a property this suite adds
+      delete document.fullscreenElement;
+    });
+
+    it('is a no-op (no throw) in an environment without the Fullscreen API -- e.g. this project\'s happy-dom test DOM, which implements neither method', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+
+      expect(() => provider.toggleFullscreen()).not.toThrow();
+    });
+
+    it('requests fullscreen on the map\'s own container element when it is not currently fullscreen', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const el = document.createElement('div');
+      const handle = await provider.mount(el, {});
+      const raw = handle.raw as { containerEl: HTMLElement };
+      expect(raw.containerEl).toBe(el);
+
+      const requestFullscreenMock = vi.fn();
+      el.requestFullscreen = requestFullscreenMock;
+
+      provider.toggleFullscreen();
+
+      expect(requestFullscreenMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('exits fullscreen when the container element is currently the document\'s fullscreen element', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const el = document.createElement('div');
+      await provider.mount(el, {});
+
+      const requestFullscreenMock = vi.fn();
+      const exitFullscreenMock = vi.fn();
+      el.requestFullscreen = requestFullscreenMock;
+      document.exitFullscreen = exitFullscreenMock;
+      // @ts-expect-error -- `fullscreenElement` is normally a read-only getter; a plain
+      // assignment is enough to simulate it in this fake DOM (happy-dom doesn't define
+      // it at all, so this doesn't shadow any real getter).
+      document.fullscreenElement = el;
+
+      provider.toggleFullscreen();
+
+      expect(exitFullscreenMock).toHaveBeenCalledTimes(1);
+      expect(requestFullscreenMock).not.toHaveBeenCalled();
+    });
+
+    it('exits fullscreen when a DESCENDANT of the container is the fullscreen element', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const el = document.createElement('div');
+      const child = document.createElement('div');
+      el.appendChild(child);
+      await provider.mount(el, {});
+
+      const exitFullscreenMock = vi.fn();
+      document.exitFullscreen = exitFullscreenMock;
+      // @ts-expect-error -- see the previous test's comment
+      document.fullscreenElement = child;
+
+      provider.toggleFullscreen();
+
+      expect(exitFullscreenMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('requests fullscreen (does not exit) when a DIFFERENT, unrelated element is currently fullscreen', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const el = document.createElement('div');
+      const otherElement = document.createElement('div');
+      await provider.mount(el, {});
+
+      const requestFullscreenMock = vi.fn();
+      const exitFullscreenMock = vi.fn();
+      el.requestFullscreen = requestFullscreenMock;
+      document.exitFullscreen = exitFullscreenMock;
+      // @ts-expect-error -- see above
+      document.fullscreenElement = otherElement;
+
+      provider.toggleFullscreen();
+
+      expect(requestFullscreenMock).toHaveBeenCalledTimes(1);
+      expect(exitFullscreenMock).not.toHaveBeenCalled();
+    });
+
+    it('before any mount, is a no-op (no crash)', () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      expect(() => provider.toggleFullscreen()).not.toThrow();
+    });
   });
 
   describe('mountOverlay', () => {

@@ -72,6 +72,17 @@ export interface IListingMapProps {
    * for the provider to mount into.
    */
   fallback?: ReactNode;
+  /**
+   * Rendered as an absolutely-positioned overlay floating over the map (e.g. zoom/fullscreen
+   * buttons), independent of `MapProvider.mount`/the map SDK -- unlike the `Popup` slot (which is
+   * portaled through `provider.mountOverlay` so it can be lat/lng-anchored and pan with the map),
+   * this is a plain React child laid over the WHOLE map area, positioned by the consumer's own
+   * CSS on `mapControls`' content (e.g. `top-right`). The overlay wrapper itself is
+   * `pointer-events: none` (so it never blocks map drag/click-through) while `mapControls` is
+   * wrapped in a `pointer-events: auto` node so its own interactive content stays clickable.
+   * Omit (the default, `undefined`) to render nothing extra -- no behavior change.
+   */
+  mapControls?: ReactNode;
 }
 
 /**
@@ -188,9 +199,17 @@ export interface IListingMapProps {
  * empty div. The mount/layer effects both already no-op without a `provider`
  * (see their guards below), so swapping in `fallback` content here is purely
  * a render-output change -- it does not touch the mount lifecycle.
+ *
+ * `mapControls`: rendered as a plain (non-portaled) React overlay laid over the WHOLE map area --
+ * see `IListingMapProps.mapControls`'s own doc comment. Deliberately NOT a child of the ref'd
+ * container passed to `provider.mount()`: a real map SDK (e.g. Google Maps) takes ownership of
+ * that element's contents, so `mapControls` is instead a sibling inside an outer wrapper `<div>`,
+ * absolutely positioned over it via CSS -- never competing with the map SDK for that node's
+ * children. `null`/`undefined` renders nothing extra (no wrapper divs at all), so this is a fully
+ * backward-compatible addition.
  */
 export function ListingMap(props: IListingMapProps) {
-  const { center, zoom, fallback } = props;
+  const { center, zoom, fallback, mapControls } = props;
   const engine = useListing();
   const state = useListingState();
 
@@ -400,21 +419,28 @@ export function ListingMap(props: IListingMapProps) {
   }, [engine, provider, ready, state.selection, hasPopup]);
 
   return (
-    <div
-      ref={containerRef}
-      className={
-        !provider && fallback
-          ? 'flex h-full min-h-0 w-full items-center justify-center'
-          : 'h-full min-h-0 w-full'
-      }
-    >
-      {!provider && fallback}
-      {hasPopup && capturedPopup
-        ? createPortal(
-            <Popup entity={capturedPopup.entity} onClose={() => engine.selectPoint(engine.primaryDatasetId, null)} />,
-            capturedPopup.container,
-          )
-        : null}
+    <div className="relative h-full min-h-0 w-full">
+      <div
+        ref={containerRef}
+        className={
+          !provider && fallback
+            ? 'flex h-full min-h-0 w-full items-center justify-center'
+            : 'h-full min-h-0 w-full'
+        }
+      >
+        {!provider && fallback}
+        {hasPopup && capturedPopup
+          ? createPortal(
+              <Popup entity={capturedPopup.entity} onClose={() => engine.selectPoint(engine.primaryDatasetId, null)} />,
+              capturedPopup.container,
+            )
+          : null}
+      </div>
+      {mapControls != null && (
+        <div className="pointer-events-none absolute inset-0">
+          <div className="pointer-events-auto">{mapControls}</div>
+        </div>
+      )}
     </div>
   );
 }

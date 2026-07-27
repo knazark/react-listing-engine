@@ -26,5 +26,23 @@ export function useListingMap() {
   );
   const setHovered = useCallback((id: EntityId | null) => engine.setHovered(engine.primaryDatasetId, id), [engine]);
 
-  return { bounds: state.bounds, points: state.points, hovered: state.hovered, loadPoints, selectPoint, setHovered };
+  // Map-chrome actions delegate straight to the currently-configured `MapProvider` --
+  // `engine.map` is `undefined` whenever no map was configured (see `ListingApp`'s `map` prop),
+  // so `?.` makes each of these a safe no-op in that case, mirroring how the actions above never
+  // crash on a not-yet-ready engine.
+  const zoomIn = useCallback(() => engine.map?.zoomIn(), [engine]);
+  const zoomOut = useCallback(() => engine.map?.zoomOut(), [engine]);
+  const toggleFullscreen = useCallback(() => engine.map?.toggleFullscreen(), [engine]);
+
+  return {
+    bounds: state.bounds,
+    points: state.points,
+    hovered: state.hovered,
+    loadPoints,
+    selectPoint,
+    setHovered,
+    zoomIn,
+    zoomOut,
+    toggleFullscreen,
+  };
 }

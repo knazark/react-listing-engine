@@ -129,6 +129,32 @@ describe('MapProvider contract (FakeMapProvider)', () => {
     expect(provider.overlays).toEqual([]);
   });
 
+  it('zoomIn/zoomOut record each call in order', async () => {
+    const provider = new FakeMapProvider();
+    await provider.mount(document.createElement('div'), { apiKey: 'k' });
+
+    expect(provider.zoomCalls).toEqual([]);
+
+    provider.zoomIn();
+    provider.zoomIn();
+    provider.zoomOut();
+
+    expect(provider.zoomCalls).toEqual(['in', 'in', 'out']);
+  });
+
+  it('toggleFullscreen increments a counter each time it is called', async () => {
+    const provider = new FakeMapProvider();
+    await provider.mount(document.createElement('div'), { apiKey: 'k' });
+
+    expect(provider.fullscreenToggles).toBe(0);
+
+    provider.toggleFullscreen();
+    expect(provider.fullscreenToggles).toBe(1);
+
+    provider.toggleFullscreen();
+    expect(provider.fullscreenToggles).toBe(2);
+  });
+
   it('drives the full mount -> renderLayer -> onBoundsChange -> destroy sequence end to end', async () => {
     const provider = new FakeMapProvider();
     const el = document.createElement('div');

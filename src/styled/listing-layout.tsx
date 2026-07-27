@@ -48,6 +48,8 @@ export interface IStyledListingLayoutProps {
 	mapCenter?: LatLng;
 	/** Forwarded verbatim to `<ListingMap zoom={mapZoom} />`. */
 	mapZoom?: number;
+	/** Forwarded verbatim to `<ListingMap mapControls={mapControls} />` -- see that prop's doc comment. */
+	mapControls?: ReactNode;
 	className?: string;
 }
 
@@ -166,6 +168,7 @@ export function StyledListingLayout({
 	hasMap: hasMapProp,
 	mapCenter,
 	mapZoom,
+	mapControls,
 	className,
 }: IStyledListingLayoutProps) {
 	const engine = useListing();
@@ -255,7 +258,7 @@ export function StyledListingLayout({
 				</div>
 				{hasMap && (
 					<div className="rle-map">
-						<ListingMap center={mapCenter} zoom={mapZoom} fallback={MAP_FALLBACK} />
+						<ListingMap center={mapCenter} zoom={mapZoom} fallback={MAP_FALLBACK} mapControls={mapControls} />
 					</div>
 				)}
 			</div>

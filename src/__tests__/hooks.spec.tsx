@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testin
 import { act, type ReactNode, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { composeListingProviders, ListingEngine, withConfig, withDataset } from '~/core';
+import { composeListingProviders, ListingEngine, withConfig, withDataset, withMap } from '~/core';
 import type { Bounds, LatLng } from '~/interfaces';
 import { ListingEventType } from '~/enums';
 import { ListingProvider } from '~/react';
@@ -15,7 +15,7 @@ import {
   useListingResults,
   useListingState,
 } from '~/react/hooks';
-import { InMemoryEntityAdapter } from '~/testing';
+import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
 interface Filters {
   max?: number;
@@ -303,6 +303,77 @@ describe('useListingMap', () => {
     });
 
     expect(result.current.state.hovered).toBeNull();
+  });
+});
+
+describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen)', () => {
+  function makeWrapperWithMap(map: FakeMapProvider) {
+    return function WrapperWithMap({ children }: { children: ReactNode }) {
+      const props = composeListingProviders<Filters>(
+        withConfig<Filters>({ debounceMs: 0 }),
+        withDataset<Property, Filters>({ id: 'p', adapter: new InMemoryEntityAdapter(rows, predicate, toLatLng), marker: { iconUrl: () => '' } }),
+        withMap<Filters>(map),
+      );
+      return <ListingProvider {...props}>{children}</ListingProvider>;
+    };
+  }
+
+  it('zoomIn()/zoomOut() delegate to the configured MapProvider, in call order', () => {
+    const map = new FakeMapProvider();
+    const { result } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMap(map) });
+
+    act(() => {
+      result.current.zoomIn();
+    });
+    act(() => {
+      result.current.zoomIn();
+    });
+    act(() => {
+      result.current.zoomOut();
+    });
+
+    expect(map.zoomCalls).toEqual(['in', 'in', 'out']);
+  });
+
+  it('toggleFullscreen() delegates to the configured MapProvider', () => {
+    const map = new FakeMapProvider();
+    const { result } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMap(map) });
+
+    act(() => {
+      result.current.toggleFullscreen();
+    });
+    act(() => {
+      result.current.toggleFullscreen();
+    });
+
+    expect(map.fullscreenToggles).toBe(2);
+  });
+
+  it('zoomIn/zoomOut/toggleFullscreen keep a stable identity across re-renders (memoized on [engine])', () => {
+    const map = new FakeMapProvider();
+    const { result, rerender } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMap(map) });
+
+    const firstZoomIn = result.current.zoomIn;
+    const firstZoomOut = result.current.zoomOut;
+    const firstToggleFullscreen = result.current.toggleFullscreen;
+
+    rerender();
+
+    expect(result.current.zoomIn).toBe(firstZoomIn);
+    expect(result.current.zoomOut).toBe(firstZoomOut);
+    expect(result.current.toggleFullscreen).toBe(firstToggleFullscreen);
+  });
+
+  it('zoomIn()/zoomOut()/toggleFullscreen() are safe no-ops when no MapProvider is configured (engine.map is undefined)', () => {
+    const { result } = renderHook(() => useListingMap(), { wrapper: Wrapper });
+
+    expect(() => {
+      act(() => {
+        result.current.zoomIn();
+        result.current.zoomOut();
+        result.current.toggleFullscreen();
+      });
+    }).not.toThrow();
   });
 });
 

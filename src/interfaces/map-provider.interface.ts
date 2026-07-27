@@ -64,4 +64,21 @@ export interface MapProvider {
    * on-map overlay when a point is selected.
    */
   mountOverlay(position: LatLng): MapOverlayHandle;
+  /**
+   * Increments the currently-mounted map's zoom level by 1. No `MapHandle` parameter: like
+   * `updateMarkerStates`/`mountOverlay`/`onMapClick`, a provider instance operates on its own
+   * currently-mounted map. No-op (never throws) when no map is currently mounted.
+   */
+  zoomIn(): void;
+  /** Decrements the currently-mounted map's zoom level by 1. See `zoomIn`'s doc comment. */
+  zoomOut(): void;
+  /**
+   * Toggles the browser Fullscreen API on the map's own container element (the same element
+   * passed to `mount`): enters fullscreen on that container if it (or a descendant) is not
+   * already the document's fullscreen element, else exits fullscreen. No `MapHandle` parameter,
+   * same rationale as `zoomIn`/`zoomOut`. Guarded against environments without the Fullscreen
+   * API (e.g. older Safari, or a test DOM that doesn't implement it) -- never throws, simply
+   * no-ops when the relevant methods aren't present. No-op when no map is currently mounted.
+   */
+  toggleFullscreen(): void;
 }

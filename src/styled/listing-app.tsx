@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
 	composeListingProviders,
@@ -99,6 +99,14 @@ export interface ListingAppProps<TFilters> {
 	mobileAction?: IBottomNavAction;
 	search?: IStyledListingLayoutProps['search'];
 	toolbarEnd?: IStyledListingLayoutProps['toolbarEnd'];
+	/**
+	 * Rendered as an absolutely-positioned overlay floating over the map (e.g. zoom/fullscreen
+	 * buttons) -- forwarded verbatim through `StyledListingLayout` to `ListingMap`'s own
+	 * `mapControls` prop; see that prop's doc comment for the exact positioning contract. Omit
+	 * (the default) to render nothing extra. Has no effect when no map is configured (the layout
+	 * drops the map region entirely in that case).
+	 */
+	mapControls?: ReactNode;
 	config?: Partial<IListingConfigOptions>;
 	autoFetch?: boolean;
 	className?: string;
@@ -232,6 +240,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		mobileAction,
 		search,
 		toolbarEnd,
+		mapControls,
 		config,
 		autoFetch,
 		className,
@@ -270,6 +279,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					autoFetch={autoFetch}
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
+					mapControls={mapControls}
 				/>
 			</ListingComponentsProvider>
 		</ListingProvider>

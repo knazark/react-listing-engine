@@ -227,4 +227,20 @@ describe('StyledListingLayout', () => {
 
 		expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
 	});
+
+	it('forwards mapControls through to ListingMap, rendered inside the .rle-map region', async () => {
+		const { container } = renderLayout({ layoutProps: { mapControls: <button data-testid="zi">+</button> } });
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+		const mapRegion = container.querySelector('.rle-map');
+		expect(mapRegion).toBeInTheDocument();
+		expect(mapRegion).toContainElement(screen.getByTestId('zi'));
+	});
+
+	it('omits any mapControls overlay when the prop is not given', async () => {
+		const { container } = renderLayout();
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+		expect(container.querySelector('.pointer-events-none')).toBeNull();
+	});
 });
