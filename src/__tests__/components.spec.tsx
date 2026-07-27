@@ -533,6 +533,46 @@ describe('ListingMap', () => {
     });
   });
 
+  it('repaints marker container classes via provider.updateMarkerStates on selection/hover, without re-rendering the marker layer', async () => {
+    const map = new FakeMapProvider();
+
+    function Probe() {
+      const engine = useListing<Property, Filters>();
+      (Probe as unknown as { engine?: typeof engine }).engine = engine;
+      return null;
+    }
+
+    render(
+      <MapWrapper map={map}>
+        <ListingMap />
+        <Probe />
+      </MapWrapper>,
+    );
+
+    await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+    const engine = (Probe as unknown as { engine: ReturnType<typeof useListing<Property, Filters>> }).engine;
+
+    await act(async () => {
+      await engine.loadPoints({ west: 0, south: 0, east: 50, north: 50 });
+    });
+    await waitFor(() => expect(map.renderedLayers.length).toBeGreaterThan(0));
+    const renderCountBefore = map.renderedLayers.length;
+
+    act(() => {
+      engine.selectPoint('p', 'b');
+    });
+    await waitFor(() => expect(map.markerStates).toEqual({ selected: 'b', hovered: null }));
+
+    act(() => {
+      engine.setHovered('p', 'a');
+    });
+    await waitFor(() => expect(map.markerStates).toEqual({ selected: 'b', hovered: 'a' }));
+
+    // Selection/hover repaint must NEVER retrigger the layer-render effect (no marker DOM
+    // recreation) -- the layer effect's deps deliberately exclude state.selection/state.hovered.
+    expect(map.renderedLayers.length).toBe(renderCountBefore);
+  });
+
   it('survives React Strict Mode mount/unmount/remount without leaking a live handle (async mount cancel-flag safety)', async () => {
     const map = new FakeMapProvider();
     const destroySpy = vi.spyOn(map, 'destroy');

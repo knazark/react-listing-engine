@@ -107,6 +107,7 @@ describe('composeListingProviders', () => {
       onBoundsChange: () => () => {},
       fitBounds: () => {},
       destroy: () => {},
+      updateMarkerStates: () => {},
     };
     const props = composeListingProviders<TestFilters>(withMap<TestFilters>(map));
     expect(props.map).toBe(map);

@@ -1,5 +1,14 @@
 import { importLibrary, setOptions, type APIOptions } from '@googlemaps/js-api-loader';
-import type { Bounds, LatLng, MapHandle, MapInitOptions, MapProvider, RenderedLayer, Unsubscribe } from '~/interfaces';
+import type {
+  Bounds,
+  EntityId,
+  LatLng,
+  MapHandle,
+  MapInitOptions,
+  MapProvider,
+  RenderedLayer,
+  Unsubscribe,
+} from '~/interfaces';
 
 // `@googlemaps/markerclusterer` is an OPTIONAL peer dependency (see package.json) -- loaded via
 // a dynamic `import()` inside `setupClustering` below, never eagerly, so consumers who never use
@@ -27,8 +36,18 @@ type LayerMarkerSpec = RenderedLayer['markers'][number];
  * from it externally is `setMap()`, which `OverlayView` already exposes.
  */
 type HtmlMarker = google.maps.OverlayView;
+/**
+ * `HtmlMarker` (the `HtmlMarkerOverlay` instance built by `getHtmlMarkerCtor`) extended with the
+ * one extra method `createOverlayMarkers` needs: a way to read back the CONTAINER `<div>` the
+ * overlay wraps its `content` in (see that class's `onAdd`), so it can be indexed by marker id for
+ * `updateMarkerStates`'s class toggling. Structurally compatible with plain `HtmlMarker` (a
+ * `google.maps.OverlayView`) everywhere else in this file that only needs `setMap`/`map`.
+ */
+interface HtmlMarkerInstance extends HtmlMarker {
+  getContainerElement(): HTMLElement | null;
+}
 interface HtmlMarkerCtor {
-  new (position: LatLng, content: HTMLElement, onClick?: () => void): HtmlMarker;
+  new (position: LatLng, content: HTMLElement, onClick?: () => void): HtmlMarkerInstance;
 }
 
 export interface GoogleMapsProviderConfig {
@@ -97,6 +116,21 @@ interface GoogleMapRaw {
   layers: Map<string, AdvancedMarker[] | HtmlMarker[]>;
   /** One active `MarkerClusterer` per clustered layer id -- see `setupClustering`/`disposeClusterer`. */
   clusterers: Map<string, MarkerClustererInstance>;
+  /**
+   * Overlay-mode (`styles`/no-`mapId`) index of each rendered marker's CONTAINER `<div>`, keyed by
+   * marker id, spanning every layer -- populated in `createOverlayMarkers`, pruned per-layer as
+   * layers are replaced/torn down in `renderLayer` (via `layerMarkerIds`, below) and cleared
+   * entirely in `destroy`. Read by `updateMarkerStates` to toggle
+   * `rle-marker--selected`/`rle-marker--hovered` on the exact existing node -- never touched in
+   * advanced-marker mode, so `updateMarkerStates` is naturally a no-op there.
+   */
+  markerElements: Map<EntityId, HTMLElement>;
+  /**
+   * Which marker ids each layer currently contributes to `markerElements`, so a layer
+   * re-render/teardown can prune exactly its own entries (and no others') from that shared,
+   * cross-layer index. Overlay mode only -- unused (and harmless to leave unused) in advanced mode.
+   */
+  layerMarkerIds: Map<string, EntityId[]>;
   boundsListeners: Set<GoogleMapsEventListener>;
   /** `undefined` under SSR/environments without `ResizeObserver` -- see `observeContainerResize`. */
   resizeObserver: ResizeObserver | undefined;
@@ -195,6 +229,15 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
     override onRemove(): void {
       this.div?.remove();
       this.div = null;
+    }
+
+    /**
+     * The absolutely positioned wrapper `<div>` this overlay renders `content` into (built in
+     * `onAdd`, above) -- `null` before `onAdd()` has run or after `onRemove()` has torn it down.
+     * Exposed so `createOverlayMarkers` can index it by marker id for `updateMarkerStates`.
+     */
+    getContainerElement(): HTMLElement | null {
+      return this.div;
     }
   }
 
@@ -355,7 +398,13 @@ function createAdvancedMarkers(raw: GoogleMapRaw, layer: RenderedLayer): Advance
   });
 }
 
-/** Creates one `OverlayView` HTML marker per spec, live on `raw.map` (`styles`/no-`mapId` mode). */
+/**
+ * Creates one `OverlayView` HTML marker per spec, live on `raw.map` (`styles`/no-`mapId` mode).
+ * Also indexes each marker's container `<div>` into `raw.markerElements` by marker id (used later
+ * by `updateMarkerStates`) -- skipped for a marker whose `onAdd()` hasn't produced a container yet
+ * (`getContainerElement()` returns `null`), which simply leaves that one id unpainted until the
+ * next re-render.
+ */
 function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMarker[] {
   const HtmlMarkerOverlay = getHtmlMarkerCtor();
   return layer.markers.map((marker) => {
@@ -363,8 +412,24 @@ function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMark
     const onClick = onMarkerClick ? () => onMarkerClick(marker.id) : undefined;
     const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick);
     htmlMarker.setMap(raw.map);
+    const container = htmlMarker.getContainerElement();
+    if (container) raw.markerElements.set(marker.id, container);
     return htmlMarker;
   });
+}
+
+/**
+ * Removes `layerId`'s marker ids (if any were recorded -- overlay mode only) from the shared,
+ * cross-layer `raw.markerElements` index. Called both when a layer is REPLACED (a fresh
+ * `renderLayer` call for the same `layer.id`) and when it is TORN DOWN (its `renderLayer`
+ * unsubscribe is called), so no stale container-div reference for that layer ever lingers in the
+ * index for `updateMarkerStates` to (harmlessly, but wastefully) keep toggling classes on.
+ */
+function pruneLayerMarkerElements(raw: GoogleMapRaw, layerId: string): void {
+  const ids = raw.layerMarkerIds.get(layerId);
+  if (!ids) return;
+  for (const id of ids) raw.markerElements.delete(id);
+  raw.layerMarkerIds.delete(layerId);
 }
 
 function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
@@ -453,6 +518,14 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
     optionsConfigured = true;
   };
 
+  // The currently-mounted map's raw state, tracked at the FACTORY level (not per-`MapHandle`)
+  // because `MapProvider#updateMarkerStates` takes no `MapHandle` parameter -- it mirrors
+  // `ListingMap`'s own single `handleRef`, which likewise assumes one live handle per provider
+  // instance at a time. Set on every `mount()` (the most recent mount always wins) and cleared by
+  // `destroy()` when the handle being destroyed is the current one, so a stale/discarded handle
+  // (e.g. a React Strict Mode double-invoke) can never leave a dangling reference here.
+  let currentRaw: GoogleMapRaw | undefined;
+
   return {
     async mount(el: HTMLElement, opts: MapInitOptions): Promise<MapHandle> {
       ensureOptionsConfigured();
@@ -478,7 +551,10 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         clusterers: new Map(),
         boundsListeners: new Set(),
         resizeObserver,
+        markerElements: new Map(),
+        layerMarkerIds: new Map(),
       };
+      currentRaw = raw;
       return { raw };
     },
 
@@ -489,6 +565,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       if (previous) {
         removeMarkers(previous);
         raw.layers.delete(layer.id);
+        pruneLayerMarkerElements(raw, layer.id);
       }
       // A re-render for the same `layer.id` always replaces its clusterer too (not just its
       // markers) -- see `setupClustering`'s doc comment for why this synchronous dispose, run
@@ -499,6 +576,12 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const created: AdvancedMarker[] | HtmlMarker[] =
         raw.markerMode === 'overlay' ? createOverlayMarkers(raw, layer) : createAdvancedMarkers(raw, layer);
       raw.layers.set(layer.id, created);
+      if (raw.markerMode === 'overlay') {
+        raw.layerMarkerIds.set(
+          layer.id,
+          layer.markers.map((marker) => marker.id),
+        );
+      }
 
       if (layer.clustering) {
         if (raw.markerMode === 'overlay') {
@@ -522,6 +605,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
           removeMarkers(created);
           raw.layers.delete(layer.id);
           disposeClusterer(raw, layer.id);
+          pruneLayerMarkerElements(raw, layer.id);
         }
       };
     },
@@ -562,6 +646,23 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       for (const layerId of [...raw.clusterers.keys()]) disposeClusterer(raw, layerId);
       for (const markers of raw.layers.values()) removeMarkers(markers);
       raw.layers.clear();
+      raw.markerElements.clear();
+      raw.layerMarkerIds.clear();
+      if (currentRaw === raw) currentRaw = undefined;
+    },
+
+    updateMarkerStates(selectedId: EntityId | null, hoveredId: EntityId | null): void {
+      // No currently-mounted map (never mounted yet, or its handle has since been destroyed) --
+      // nothing to repaint.
+      if (!currentRaw) return;
+      // `markerElements` is populated ONLY by `createOverlayMarkers` (overlay/`styles` mode), so
+      // this loop is naturally empty -- a no-op -- in advanced-marker mode (`AdvancedMarkerElement`,
+      // used only when a Map ID is set): that mode has no addressable container element to toggle
+      // classes on, and is out of the perks path this task targets.
+      for (const [id, el] of currentRaw.markerElements) {
+        el.classList.toggle('rle-marker--selected', id === selectedId);
+        el.classList.toggle('rle-marker--hovered', id === hoveredId && id !== selectedId);
+      }
     },
   };
 }

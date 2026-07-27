@@ -508,6 +508,19 @@ describe('googleProvider', () => {
     expect(createdMarkers.every((m) => m.map === null)).toBe(true);
   });
 
+  it('updateMarkerStates is a no-op in advanced-marker mode (no container index is kept there)', async () => {
+    const provider = googleProvider({ apiKey: 'k' }); // default advanced-marker mode, no styles
+    const handle = await provider.mount(document.createElement('div'), {});
+    provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
+
+    expect(() => provider.updateMarkerStates(1, null)).not.toThrow();
+  });
+
+  it('updateMarkerStates before any mount is a no-op (no crash)', () => {
+    const provider = googleProvider({ apiKey: 'k' });
+    expect(() => provider.updateMarkerStates(1, 2)).not.toThrow();
+  });
+
   describe('container resize hardening', () => {
     it('mount attaches a ResizeObserver to the map container', async () => {
       const provider = googleProvider({ apiKey: 'k' });
@@ -827,6 +840,92 @@ describe('googleProvider', () => {
       for (const overlay of createdOverlays) {
         expect(overlay.setMap).toHaveBeenCalledWith(null);
       }
+    });
+
+    it('updateMarkerStates toggles rle-marker--selected/--hovered on the exact existing container divs (no DOM recreation)', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      provider.renderLayer(
+        handle,
+        makeLayer({
+          markers: [
+            { id: 'a', position: { lat: 1, lng: 1 } },
+            { id: 'b', position: { lat: 2, lng: 2 } },
+          ],
+        }),
+      );
+
+      const [overlayA, overlayB] = createdOverlays;
+      const divA = overlayA.pane.firstElementChild as HTMLElement;
+      const divB = overlayB.pane.firstElementChild as HTMLElement;
+
+      provider.updateMarkerStates('a', null);
+      expect(divA.classList.contains('rle-marker--selected')).toBe(true);
+      expect(divB.classList.contains('rle-marker--selected')).toBe(false);
+      expect(divA.classList.contains('rle-marker--hovered')).toBe(false);
+
+      provider.updateMarkerStates(null, 'b');
+      expect(divA.classList.contains('rle-marker--selected')).toBe(false);
+      expect(divB.classList.contains('rle-marker--hovered')).toBe(true);
+
+      // Selected wins over hovered when the same id is passed for both.
+      provider.updateMarkerStates('a', 'a');
+      expect(divA.classList.contains('rle-marker--selected')).toBe(true);
+      expect(divA.classList.contains('rle-marker--hovered')).toBe(false);
+
+      // No DOM recreation -- the exact same container nodes are still the ones in each pane.
+      expect(overlayA.pane.firstElementChild).toBe(divA);
+      expect(overlayB.pane.firstElementChild).toBe(divB);
+    });
+
+    it('renderLayer unsubscribe prunes that layer\'s marker ids from the id->element index (no stale references linger)', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { markerElements: Map<string | number, HTMLElement> };
+
+      const unsubscribeA = provider.renderLayer(
+        handle,
+        makeLayer({ id: 'a', markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }),
+      );
+      provider.renderLayer(handle, makeLayer({ id: 'b', markers: [{ id: 2, position: { lat: 2, lng: 2 } }] }));
+
+      expect(raw.markerElements.size).toBe(2);
+
+      unsubscribeA();
+
+      expect(raw.markerElements.has(1)).toBe(false);
+      expect(raw.markerElements.has(2)).toBe(true);
+      expect(raw.markerElements.size).toBe(1);
+    });
+
+    it('re-rendering a layer.id replaces its entries in the id->element index with the fresh markers', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+
+      provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 1, lng: 1 } }] }));
+      const staleDiv = createdOverlays[0].pane.firstElementChild as HTMLElement;
+
+      provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 9, lng: 9 } }] }));
+      const freshDiv = createdOverlays[1].pane.firstElementChild as HTMLElement;
+
+      provider.updateMarkerStates('a', null);
+
+      // Only the CURRENT container div for id 'a' gets the class -- the stale, already-torn-down
+      // node from the replaced layer is untouched.
+      expect(freshDiv.classList.contains('rle-marker--selected')).toBe(true);
+      expect(staleDiv.classList.contains('rle-marker--selected')).toBe(false);
+    });
+
+    it('destroy clears the id->element index entirely', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { markerElements: Map<string | number, HTMLElement> };
+      provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
+
+      expect(raw.markerElements.size).toBe(1);
+      provider.destroy(handle);
+
+      expect(raw.markerElements.size).toBe(0);
     });
 
     it('skips clustering in overlay mode: no MarkerClusterer, warns once', async () => {

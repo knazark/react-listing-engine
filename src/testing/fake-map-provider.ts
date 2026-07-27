@@ -1,4 +1,4 @@
-import type { Bounds, MapHandle, MapInitOptions, MapProvider, RenderedLayer, Unsubscribe } from '~/interfaces';
+import type { Bounds, EntityId, MapHandle, MapInitOptions, MapProvider, RenderedLayer, Unsubscribe } from '~/interfaces';
 
 type BoundsListener = (b: Bounds) => void;
 
@@ -15,6 +15,8 @@ export class FakeMapProvider implements MapProvider {
   readonly fitBoundsCalls: Bounds[] = [];
   readonly destroyed: MapHandle[] = [];
   destroyCount = 0;
+  /** Records the most recent `updateMarkerStates` call -- `null` until it is first called. */
+  markerStates: { selected: EntityId | null; hovered: EntityId | null } | null = null;
 
   private readonly boundsListeners = new Set<BoundsListener>();
 
@@ -60,5 +62,9 @@ export class FakeMapProvider implements MapProvider {
     this.destroyed.push(handle);
     this.destroyCount += 1;
     this.boundsListeners.clear();
+  }
+
+  updateMarkerStates(selectedId: EntityId | null, hoveredId: EntityId | null): void {
+    this.markerStates = { selected: selectedId, hovered: hoveredId };
   }
 }

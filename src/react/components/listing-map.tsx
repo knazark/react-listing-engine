@@ -304,6 +304,15 @@ export function ListingMap(props: IListingMapProps) {
     provider.fitBounds(handle, bbox);
   }, [provider, center, ready, state.points, state.layers]);
 
+  // Marker-state repaint effect (declared last, no cleanup of its own): repaints the
+  // SELECTED/HOVERED marker's existing container node via `provider.updateMarkerStates` whenever
+  // `state.selection`/`state.hovered` change -- NEVER recreates marker DOM. Deliberately kept OUT
+  // of the layer effect's dependency list above: adding selection/hover there would tear down and
+  // recreate every marker on each hover, which is exactly what this separate effect avoids.
+  useEffect(() => {
+    provider?.updateMarkerStates(state.selection, state.hovered);
+  }, [provider, ready, state.selection, state.hovered]);
+
   return (
     <div
       ref={containerRef}

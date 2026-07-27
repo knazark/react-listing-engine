@@ -94,6 +94,22 @@ describe('MapProvider contract (FakeMapProvider)', () => {
     expect(provider.destroyCount).toBe(1);
   });
 
+  it('updateMarkerStates records the last selected/hovered ids passed to it', async () => {
+    const provider = new FakeMapProvider();
+    await provider.mount(document.createElement('div'), { apiKey: 'k' });
+
+    expect(provider.markerStates).toBeNull();
+
+    provider.updateMarkerStates('a', null);
+    expect(provider.markerStates).toEqual({ selected: 'a', hovered: null });
+
+    provider.updateMarkerStates(null, 'b');
+    expect(provider.markerStates).toEqual({ selected: null, hovered: 'b' });
+
+    provider.updateMarkerStates('c', 'c');
+    expect(provider.markerStates).toEqual({ selected: 'c', hovered: 'c' });
+  });
+
   it('drives the full mount -> renderLayer -> onBoundsChange -> destroy sequence end to end', async () => {
     const provider = new FakeMapProvider();
     const el = document.createElement('div');
