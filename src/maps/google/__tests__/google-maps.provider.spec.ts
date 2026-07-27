@@ -1173,6 +1173,66 @@ describe('googleProvider', () => {
       expect(staleDiv.classList.contains('rle-marker--selected')).toBe(false);
     });
 
+    it(
+      'a marker container recreated by a layer re-render (e.g. a bounds/idle-driven points reload while a ' +
+        'marker is selected/hovered) immediately regains its rle-marker--selected/--hovered class on ' +
+        'registration -- even though the marker-state effect in `ListingMap` only re-invokes ' +
+        'updateMarkerStates on a selection/hover CHANGE, never on a points-only reload, so nothing else ' +
+        'ever re-applies the highlight to the fresh container (regression: the old container is torn down ' +
+        'and a brand-new one is created with NO class, and it silently stays unhighlighted until the next ' +
+        'real selection/hover change)',
+      async () => {
+        deferOverlayOnAdd = true;
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+
+        // Initial render of two markers, then select 'a' and hover 'b' -- both containers pick up
+        // their class via the normal updateMarkerStates path.
+        provider.renderLayer(
+          handle,
+          makeLayer({
+            markers: [
+              { id: 'a', position: { lat: 1, lng: 1 } },
+              { id: 'b', position: { lat: 2, lng: 2 } },
+            ],
+          }),
+        );
+        await vi.waitFor(() => expect(createdOverlays[0].pane.firstElementChild).not.toBeNull());
+        await vi.waitFor(() => expect(createdOverlays[1].pane.firstElementChild).not.toBeNull());
+        provider.updateMarkerStates('a', 'b');
+
+        const firstDivA = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        const firstDivB = createdOverlays[1].pane.firstElementChild as HTMLElement;
+        expect(firstDivA.classList.contains('rle-marker--selected')).toBe(true);
+        expect(firstDivB.classList.contains('rle-marker--hovered')).toBe(true);
+
+        // Simulate a points reload recreating markers for the SAME layer.id (a fresh `state.points`
+        // reference -> the layer-render effect tears down every existing marker and builds new ones)
+        // WITHOUT touching selection/hover -- exactly what happens on every bounds/idle event while a
+        // marker is selected/hovered (perks' `/find` refilters on every map move). Registration is
+        // async (deferred `onAdd`), mirroring the real Maps runtime.
+        provider.renderLayer(
+          handle,
+          makeLayer({
+            markers: [
+              { id: 'a', position: { lat: 1, lng: 1 } },
+              { id: 'b', position: { lat: 2, lng: 2 } },
+            ],
+          }),
+        );
+
+        await vi.waitFor(() => expect(createdOverlays[2].pane.firstElementChild).not.toBeNull());
+        await vi.waitFor(() => expect(createdOverlays[3].pane.firstElementChild).not.toBeNull());
+        const freshDivA = createdOverlays[2].pane.firstElementChild as HTMLElement;
+        const freshDivB = createdOverlays[3].pane.firstElementChild as HTMLElement;
+
+        // The freshly (re)created containers must already carry the correct highlight -- nothing in
+        // this test ever calls updateMarkerStates a second time.
+        expect(freshDivA.classList.contains('rle-marker--selected')).toBe(true);
+        expect(freshDivB.classList.contains('rle-marker--hovered')).toBe(true);
+      },
+    );
+
     it('populates the container index from the overlay\'s ASYNC onAdd, not a synchronous read right after setMap() (regression: real OverlayView.onAdd fires on the next render cycle, never synchronously inside setMap -- a synchronous read finds nothing and updateMarkerStates silently never repaints)', async () => {
       deferOverlayOnAdd = true;
       const provider = googleProvider({ apiKey: 'k', styles });

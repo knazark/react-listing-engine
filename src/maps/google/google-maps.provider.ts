@@ -152,6 +152,22 @@ interface GoogleMapRaw {
    * cross-layer index. Overlay mode only -- unused (and harmless to leave unused) in advanced mode.
    */
   layerMarkerIds: Map<string, EntityId[]>;
+  /**
+   * The most recently requested selected/hovered marker ids (the arguments of the last
+   * `updateMarkerStates` call), PERSISTED here rather than only applied transiently to the markers
+   * live at that exact moment. A layer re-render (e.g. `ListingMap`'s layer effect rebuilding every
+   * marker whenever `state.points` gets a new reference -- which happens on every bounds/idle event,
+   * completely independent of selection/hover) tears down the old container and creates a brand-new
+   * one with no classes at all. `ListingMap`'s separate marker-state effect deliberately only
+   * re-invokes `updateMarkerStates` on a selection/hover CHANGE (see that effect's doc comment), so
+   * without this, a freshly recreated container would silently stay unhighlighted until the next real
+   * selection/hover change. Reading these back in `onContainerAdd` (see `createOverlayMarkers`) lets a
+   * newly registered container regain the correct highlight immediately, regardless of *when* its
+   * async `onAdd` happens to fire relative to the last `updateMarkerStates` call. `null` until
+   * `updateMarkerStates` is first called. Overlay mode only -- unused (and harmless) in advanced mode.
+   */
+  selectedMarkerId: EntityId | null;
+  hoveredMarkerId: EntityId | null;
   boundsListeners: Set<GoogleMapsEventListener>;
   /**
    * Live `onMapClick` google listeners, mirroring `boundsListeners` above: `onMapClick` (unlike
@@ -503,6 +519,24 @@ function createAdvancedMarkers(raw: GoogleMapRaw, layer: RenderedLayer): Advance
 }
 
 /**
+ * Toggles `rle-marker--selected`/`rle-marker--hovered` on a single marker container `<div>` for
+ * `id` against `selectedId`/`hoveredId` -- the one shared rule used both by `updateMarkerStates`
+ * (an explicit selection/hover CHANGE, applied across every currently-registered container) and by
+ * `onContainerAdd` (a container freshly (re)created by a layer re-render, which must regain
+ * whatever highlight is already active -- see `GoogleMapRaw.selectedMarkerId`/`hoveredMarkerId`'s
+ * doc comment). Selected always wins over hovered when the same id is passed for both.
+ */
+function applyMarkerStateClasses(
+  el: HTMLElement,
+  id: EntityId,
+  selectedId: EntityId | null,
+  hoveredId: EntityId | null,
+): void {
+  el.classList.toggle('rle-marker--selected', id === selectedId);
+  el.classList.toggle('rle-marker--hovered', id === hoveredId && id !== selectedId);
+}
+
+/**
  * Creates one `OverlayView` HTML marker per spec, live on `raw.map` (`styles`/no-`mapId` mode).
  * Also indexes each marker's container `<div>` into `raw.markerElements` by marker id (used later
  * by `updateMarkerStates`) -- via the `HtmlMarkerLifecycle` hooks below, populated FROM the
@@ -516,7 +550,13 @@ function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMark
     const onMarkerClick = layer.onMarkerClick;
     const onClick = onMarkerClick ? () => onMarkerClick(marker.id) : undefined;
     const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick, {
-      onContainerAdd: (container) => raw.markerElements.set(marker.id, container),
+      onContainerAdd: (container) => {
+        raw.markerElements.set(marker.id, container);
+        // Re-apply whatever selection/hover highlight is currently active -- see
+        // `raw.selectedMarkerId`/`hoveredMarkerId`'s doc comment for why this container may be a
+        // brand-new replacement (from a layer re-render) that came up with no classes at all.
+        applyMarkerStateClasses(container, marker.id, raw.selectedMarkerId, raw.hoveredMarkerId);
+      },
       onContainerRemove: (container) => {
         // Only clear if this id's index entry is still THIS container -- a re-render for the
         // same layer.id may already have registered a FRESH container for `marker.id` by the
@@ -689,6 +729,8 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         resizeObserver,
         markerElements: new Map(),
         layerMarkerIds: new Map(),
+        selectedMarkerId: null,
+        hoveredMarkerId: null,
       };
       // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
       // comment for why this can't just be an unconditional assignment.
@@ -821,13 +863,19 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // No currently-mounted map (never mounted yet, or its handle has since been destroyed) --
       // nothing to repaint.
       if (!currentRaw) return;
+      // Persisted so a marker container recreated LATER by a layer re-render (unrelated to
+      // selection/hover -- e.g. a bounds/idle-driven points reload) can regain the correct
+      // highlight the instant it registers, without waiting for the next call here -- see
+      // `GoogleMapRaw.selectedMarkerId`/`hoveredMarkerId`'s doc comment and `onContainerAdd` in
+      // `createOverlayMarkers`.
+      currentRaw.selectedMarkerId = selectedId;
+      currentRaw.hoveredMarkerId = hoveredId;
       // `markerElements` is populated ONLY by `createOverlayMarkers` (overlay/`styles` mode), so
       // this loop is naturally empty -- a no-op -- in advanced-marker mode (`AdvancedMarkerElement`,
       // used only when a Map ID is set): that mode has no addressable container element to toggle
       // classes on, and is out of the perks path this task targets.
       for (const [id, el] of currentRaw.markerElements) {
-        el.classList.toggle('rle-marker--selected', id === selectedId);
-        el.classList.toggle('rle-marker--hovered', id === hoveredId && id !== selectedId);
+        applyMarkerStateClasses(el, id, selectedId, hoveredId);
       }
     },
 
