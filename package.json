@@ -1,6 +1,6 @@
 {
   "name": "react-listing-engine",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "license": "MIT",
   "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a Tailwind-free styled adapter.",
   "funding": [
@@ -69,7 +69,6 @@
   "peerDependencies": {
     "@googlemaps/js-api-loader": ">=1",
     "@googlemaps/markerclusterer": ">=2",
-    "@radix-ui/react-slot": ">=1",
     "react": ">=18",
     "react-dom": ">=18"
   },
@@ -78,9 +77,6 @@
       "optional": true
     },
     "@googlemaps/markerclusterer": {
-      "optional": true
-    },
-    "@radix-ui/react-slot": {
       "optional": true
     }
   },
@@ -105,15 +101,10 @@
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^20.11.1",
-    "lucide-react": "^1.26.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
-  },
-  "dependencies": {
-    "clsx": "^2.1.1",
-    "tailwind-merge": "^3.6.0"
   },
   "engines": {
     "node": ">=18"

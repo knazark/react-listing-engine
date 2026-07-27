@@ -17,7 +17,7 @@ export default defineConfig({
   clean: true,
   splitting: true,
   treeshake: false, // preserve 'use client' banner (same reason as wizard)
-  external: ['react', 'react-dom', '@googlemaps/js-api-loader', '@googlemaps/markerclusterer', '@radix-ui/react-slot'],
+  external: ['react', 'react-dom', '@googlemaps/js-api-loader', '@googlemaps/markerclusterer'],
   esbuildOptions(options) {
     options.banner = { js: '"use client";' };
     options.alias = { '~': fileURLToPath(new URL('./src', import.meta.url)) };

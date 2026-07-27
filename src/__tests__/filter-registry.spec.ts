@@ -110,6 +110,19 @@ describe('FilterRegistry', () => {
     expect(reg.activeKeys({ inStock: true })).toEqual([]);
   });
 
+  it("clearedParams round-trips each def's toParams(fromParams({})), covering keys that are not state fields", () => {
+    const reg = new FilterRegistry<TestFilters>();
+    const bedroomsToQ: FilterDefinition<TestFilters, string> = {
+      key: 'bedrooms', // identifier only — maps to the `q` STATE field
+      order: 0,
+      render: 'text',
+      toParams: v => ({ q: v || undefined }),
+      fromParams: f => f.q ?? '',
+    };
+    reg.add(bedroomsToQ).add(priceDef);
+    expect(reg.clearedParams()).toStrictEqual({ q: undefined, price: 0 });
+  });
+
   it('replace normalizes a mismatched def.key to the Map key, keeping has()/list()/remove() consistent', () => {
     const reg = new FilterRegistry<TestFilters>();
     reg.add(qDef).add(priceDef);

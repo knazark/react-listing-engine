@@ -53,14 +53,14 @@ export interface ListingAppProps<TFilters> {
 	datasets: DatasetDefinition<any, TFilters>[];
 	/** A `(reg) => { reg.add(...); }` callback that registers your filters -- forwarded verbatim to `withFilters`. */
 	filters?: (reg: FilterRegistry<TFilters>) => void;
-	/** A ready `MapProvider`, or `{ apiKey, mapId? }` to build a `googleProvider` internally. Omit for no map (the styled layout shows a "Map unavailable" fallback). */
+	/** A ready `MapProvider`, or `{ apiKey, mapId? }` to build a `googleProvider` internally. Omit for no map -- the layout drops the map region and renders the list full-width. */
 	map?: ListingAppMapProp;
 	/** Slot overrides, merged OVER the `/styled` defaults -- see this file's doc comment for how the merge works. */
 	components?: Partial<IListingComponents>;
 	/**
-	 * Hydrates the engine's initial filters on mount -- typically read from
-	 * the CONSUMER's own URL (e.g. `rentalFiltersFromQuery(new
-	 * URLSearchParams(window.location.search))`), but any source works. Half
+	 * Hydrates the engine's initial filters on mount -- typically parsed from
+	 * the CONSUMER's own URL (your own query-string parser over `new
+	 * URLSearchParams(window.location.search)`), but any source works. Half
 	 * of the event-based URL API this component exposes: `ListingApp` never
 	 * reads `window.location` itself, it only accepts filters as a prop.
 	 */
@@ -86,7 +86,7 @@ export interface ListingAppProps<TFilters> {
 	 * they are no longer the primary/recommended path for new integrations.
 	 */
 	onFiltersChange?: (filters: TFilters) => void;
-	/** The mobile bottom-nav "Add" action -- forwarded verbatim to `StyledListingLayout`/`BottomNav`. */
+	/** The mobile header action (e.g. "Save"/"Add") -- forwarded verbatim to `StyledListingLayout`/`MobileHeader`. */
 	mobileAction?: IBottomNavAction;
 	search?: IStyledListingLayoutProps['search'];
 	toolbarEnd?: IStyledListingLayoutProps['toolbarEnd'];
@@ -252,7 +252,6 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
 					autoFetch={autoFetch}
-					hasMap={map != null}
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 				/>

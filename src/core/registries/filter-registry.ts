@@ -3,8 +3,9 @@ import type { FilterDefinition } from '~/interfaces';
 /**
  * Framework-free registry for `FilterDefinition`s: programmatic add / remove /
  * reorder / replace, plus folding raw control values into `TFilters`
- * (`toFilters`) and reporting which registered filters currently affect an
- * applied `TFilters` (`activeKeys`).
+ * (`toFilters`), reporting which registered filters currently affect an
+ * applied `TFilters` (`activeKeys`), and building the reset-everything patch
+ * (`clearedParams`).
  *
  * Defs are stored by VALUE (shallow-cloned on `add`/`replace`), never by the
  * caller's original reference — `reorder()` rewrites `order` in place on the
@@ -84,5 +85,18 @@ export class FilterRegistry<TFilters> {
     return this.list()
       .filter(def => def.isActive?.(filters))
       .map(def => def.key);
+  }
+
+  // The "reset every registered filter" patch. `def.key` is an identifier,
+  // NOT necessarily a `TFilters` field (`toParams` can fan one control out to
+  // e.g. `minRent`/`maxRent`), so a correct reset must round-trip each def's
+  // own empty control value -- `toParams(fromParams({}))` -- rather than
+  // writing `undefined` under `def.key`. `{}` is the canonical "no filters
+  // applied" `TFilters` (same convention `toFilters` starts its fold from).
+  clearedParams(): Partial<TFilters> {
+    return this.list().reduce<Partial<TFilters>>(
+      (acc, def) => Object.assign(acc, def.toParams(def.fromParams({} as TFilters))),
+      {},
+    );
   }
 }

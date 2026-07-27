@@ -70,33 +70,14 @@
 }
 
 /* -----------------------------------------------------------------------
- * Base -- box-sizing + font-family for every element this stylesheet owns.
+ * Base -- box-sizing + font-family for every element this stylesheet owns,
+ * scoped by the `rle-` class prefix (the adapter's namespace) instead of an
+ * enumerated class list, so new components are covered automatically --
+ * including elements portaled outside `.rle-app` (sheet, backdrop).
  * --------------------------------------------------------------------- */
 
-.rle-card,
-.rle-card-media,
-.rle-card-body,
-.rle-marker,
-.rle-pin,
-.rle-popup,
-.rle-popup-close,
-.rle-empty,
-.rle-empty-icon,
-.rle-loading,
-.rle-loading-item,
-.rle-skeleton,
-.rle-result-header,
-.rle-toolbar,
-.rle-sidebar,
-.rle-filter-panel,
-.rle-input,
-.rle-range,
-.rle-select,
-.rle-dropdown,
-.rle-dropdown-panel,
-.rle-checkbox,
-.rle-label,
-.rle-btn {
+[class^='rle-'],
+[class*=' rle-'] {
 	box-sizing: border-box;
 	font-family: var(--rle-font-sans);
 }
@@ -577,26 +558,6 @@
 }
 
 /* -----------------------------------------------------------------------
- * Motion
- * --------------------------------------------------------------------- */
-
-@media (prefers-reduced-motion: reduce) {
-	.rle-card[type='button'],
-	.rle-popup-close,
-	.rle-skeleton,
-	.rle-input,
-	.rle-select,
-	.rle-dropdown,
-	.rle-btn,
-	.rle-viewtoggle__btn,
-	.rle-sheet,
-	.rle-sheet-backdrop {
-		transition: none;
-		animation: none;
-	}
-}
-
-/* -----------------------------------------------------------------------
  * Layout shell -- the responsive "filter bar + list/map split" chrome
  * `StyledListingLayout` composes the `~/react` structure-only components
  * into. Breakpoint: 1024px, matching the mobile-only bottom nav/sheet below.
@@ -605,32 +566,6 @@
  * `(max-width: 1023px)` block layers mobile-only overrides -- never both for
  * the same property, so there is exactly one source of truth per viewport.
  * --------------------------------------------------------------------- */
-
-.rle-app,
-.rle-filter-bar,
-.rle-filter-bar__end,
-.rle-filters-row,
-.rle-filter-stack,
-.rle-filter-group,
-.rle-body,
-.rle-split,
-.rle-list,
-.rle-list-grid,
-.rle-map,
-.rle-bottom-nav,
-.rle-viewtoggle,
-.rle-viewtoggle__btn,
-.rle-sheet-backdrop,
-.rle-sheet,
-.rle-sheet__handle,
-.rle-sheet__header,
-.rle-sheet__title,
-.rle-sheet__close,
-.rle-sheet__body,
-.rle-sheet__footer {
-	box-sizing: border-box;
-	font-family: var(--rle-font-sans);
-}
 
 .rle-app {
 	display: flex;
@@ -641,11 +576,16 @@
 }
 
 /* -----------------------------------------------------------------------
- * Desktop filter bar -- hidden below 1024px in favor of the bottom nav's
+ * Desktop filter bar -- hidden below 1024px in favor of the mobile header's
  * Filters button + bottom sheet.
  * --------------------------------------------------------------------- */
 
-.rle-filter-bar {
+/* Sticky top chrome shared with `.rle-mobile-header` -- the two
+   viewport-exclusive top bars. (`display: none` on whichever is inactive
+   makes the sticky properties inert, so sharing them unconditionally is
+   safe.) */
+.rle-filter-bar,
+.rle-mobile-header {
 	position: sticky;
 	top: 0;
 	z-index: 10;
@@ -751,15 +691,10 @@
 
 @media (max-width: 1023px) {
 	.rle-mobile-header {
-		position: sticky;
-		top: 0;
-		z-index: 10;
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		padding: var(--rle-space);
-		background: var(--rle-surface);
-		border-bottom: 1px solid var(--rle-border);
 	}
 }
 
@@ -768,39 +703,21 @@
 	min-width: 0;
 }
 
+/* Modifier over `.rle-btn` (the shared button primitive -- hover, focus
+   ring, transition and reduced-motion behavior all come from there):
+   slightly taller, tighter header buttons. */
 .rle-mobile-header__btn {
-	display: inline-flex;
 	flex-shrink: 0;
-	align-items: center;
-	justify-content: center;
 	gap: 6px;
 	height: 40px;
 	padding: 0 12px;
-	background: var(--rle-surface);
-	border: 1px solid var(--rle-border);
-	border-radius: var(--rle-radius-sm);
-	color: var(--rle-fg);
 	font-size: var(--rle-fs-sm);
-	font-weight: 500;
 	white-space: nowrap;
-	cursor: pointer;
-	transition:
-		background-color 150ms ease,
-		border-color 150ms ease;
 }
 
 .rle-mobile-header__btn svg {
 	width: 18px;
 	height: 18px;
-}
-
-.rle-mobile-header__btn:hover {
-	background: var(--rle-muted-bg);
-}
-
-.rle-mobile-header__btn:focus-visible {
-	outline: none;
-	box-shadow: 0 0 0 3px var(--rle-ring);
 }
 
 .rle-mobile-header__btn--icon {
@@ -1096,4 +1013,19 @@
 	gap: var(--rle-space);
 	padding: var(--rle-space);
 	border-top: 1px solid var(--rle-border);
+}
+
+/* -----------------------------------------------------------------------
+ * Motion -- LAST on purpose: prefix-scoped like the base reset (every
+ * `rle-` element goes still, so a new component with a transition can't be
+ * forgotten here), and every transition/animation above shares this rule's
+ * single-class specificity, so it must come later in the file to win.
+ * --------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+	[class^='rle-'],
+	[class*=' rle-'] {
+		transition: none;
+		animation: none;
+	}
 }

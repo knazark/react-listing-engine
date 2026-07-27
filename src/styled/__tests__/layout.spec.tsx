@@ -2,12 +2,20 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { ComponentType } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { composeListingProviders, withConfig, withDataset, withFilters, withMap } from '~/core';
+import {
+	composeListingProviders,
+	withConfig,
+	withDataset,
+	withFilters,
+	withMap,
+	type FilterRegistry,
+	type ListingProviderMod,
+} from '~/core';
 import type { FilterControlProps, LatLng } from '~/interfaces';
 import { ListingProvider } from '~/react';
 import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
-import { StyledComponentsProviderWithDefaults, StyledListingLayout, type IBottomNavAction } from '..';
+import { StyledComponentsProviderWithDefaults, StyledListingLayout, type IStyledListingLayoutProps } from '..';
 
 afterEach(() => {
 	cleanup();
@@ -42,32 +50,42 @@ const QueryControl: ComponentType<FilterControlProps<string>> = ({ value, onChan
 	<input aria-label="Query" value={value} onChange={event => onChange(event.target.value)} />
 );
 
-function renderLayout(mobileAction?: IBottomNavAction) {
+const registerQueryFilter = (reg: FilterRegistry<Filters>): void => {
+	void reg.add<string>({
+		key: 'q',
+		order: 0,
+		render: QueryControl,
+		toParams: value => ({ q: value || undefined }),
+		fromParams: filters => filters.q ?? '',
+	});
+};
+
+interface IRenderLayoutOptions {
+	/** Custom filter registration; `false` registers none. Default: the `q` `QueryControl` filter. */
+	filters?: ((reg: FilterRegistry<Filters>) => void) | false;
+	layoutProps?: IStyledListingLayoutProps;
+}
+
+function renderLayout({ filters, layoutProps }: IRenderLayoutOptions = {}) {
 	const map = new FakeMapProvider();
 
-	const composed = composeListingProviders<Filters>(
+	const mods: ListingProviderMod<Filters>[] = [
 		withDataset<ListingRow, Filters>({
 			id: 'p',
 			adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
 			marker: { iconUrl: () => '' },
 		}),
-		withFilters<Filters>(reg =>
-			reg.add<string>({
-				key: 'q',
-				order: 0,
-				render: QueryControl,
-				toParams: value => ({ q: value || undefined }),
-				fromParams: filters => filters.q ?? '',
-			}),
-		),
 		withMap<Filters>(map),
 		withConfig<Filters>({ debounceMs: 0 }),
-	);
+	];
+	if (filters !== false) mods.push(withFilters<Filters>(filters ?? registerQueryFilter));
+
+	const composed = composeListingProviders<Filters>(...mods);
 
 	const view = render(
 		<ListingProvider<ListingRow, Filters> {...composed}>
 			<StyledComponentsProviderWithDefaults>
-				<StyledListingLayout mobileAction={mobileAction} />
+				<StyledListingLayout {...layoutProps} />
 			</StyledComponentsProviderWithDefaults>
 		</ListingProvider>,
 	);
@@ -94,24 +112,7 @@ describe('StyledListingLayout', () => {
 		// No registered filter -- the header/desktop-bar search box is the only
 		// thing touching `q`, proving the LIBRARY wires `search.filterKey` to the
 		// engine (value read from filters, edits via applyFilters).
-		const map = new FakeMapProvider();
-		const composed = composeListingProviders<Filters>(
-			withDataset<ListingRow, Filters>({
-				id: 'p',
-				adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
-				marker: { iconUrl: () => '' },
-			}),
-			withMap<Filters>(map),
-			withConfig<Filters>({ debounceMs: 0 }),
-		);
-
-		render(
-			<ListingProvider<ListingRow, Filters> {...composed}>
-				<StyledComponentsProviderWithDefaults>
-					<StyledListingLayout search={{ filterKey: 'q' }} />
-				</StyledComponentsProviderWithDefaults>
-			</ListingProvider>,
-		);
+		renderLayout({ filters: false, layoutProps: { search: { filterKey: 'q' } } });
 
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
@@ -169,14 +170,8 @@ describe('StyledListingLayout', () => {
 	});
 
 	it('"Clear all" resets a filter whose registry key differs from its state field (via toParams)', async () => {
-		const map = new FakeMapProvider();
-		const composed = composeListingProviders<Filters>(
-			withDataset<ListingRow, Filters>({
-				id: 'p',
-				adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
-				marker: { iconUrl: () => '' },
-			}),
-			withFilters<Filters>(reg =>
+		renderLayout({
+			filters: reg =>
 				reg.add<string>({
 					// Registry key deliberately != the 'q' STATE field it maps to --
 					// the old clear-by-`def.key` logic would no-op on this.
@@ -186,18 +181,7 @@ describe('StyledListingLayout', () => {
 					toParams: value => ({ q: value || undefined }),
 					fromParams: filters => filters.q ?? '',
 				}),
-			),
-			withMap<Filters>(map),
-			withConfig<Filters>({ debounceMs: 0 }),
-		);
-
-		render(
-			<ListingProvider<ListingRow, Filters> {...composed}>
-				<StyledComponentsProviderWithDefaults>
-					<StyledListingLayout />
-				</StyledComponentsProviderWithDefaults>
-			</ListingProvider>,
-		);
+		});
 
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		// Apply the filter -> only Sunny Loft remains.
@@ -230,7 +214,7 @@ describe('StyledListingLayout', () => {
 
 	it('fires mobileAction.onClick when the header action button is clicked', async () => {
 		const onClick = vi.fn();
-		renderLayout({ label: 'Add', onClick });
+		renderLayout({ layoutProps: { mobileAction: { label: 'Add', onClick } } });
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 
 		fireEvent.click(screen.getByRole('button', { name: 'Add' }));

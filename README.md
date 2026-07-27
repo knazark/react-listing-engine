@@ -73,8 +73,8 @@ The engine is layered so you can go as deep as you need and stop:
 
 1. **Data** — implement `EntityAdapter<TEntity, TFilters>` against your own API. Nothing in the engine assumes a specific backend or entity shape.
 2. **Structure** — compose the provider with `composeListingProviders(withMap(...), withDataset(...), withFilters(...), withUrlSync(...), withInitialFilters(...), withPrimaryDataset(...), withConfig(...))`. Mutate filters via `FilterRegistry` (`add`/`remove`/`reorder`/`replace`) and layers via `DatasetRegistry` (`add`/`get`/`has`/`list`/`visibleIds`).
-3. **Presentation** — swap any slot via `ListingComponentsProvider` (or start from `ListingComponentsProviderWithDefaults` for the styled look and override only what you need). Injectable slots: `Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`. `Marker`/`Popup` are defined but not yet wired into the map's render output (see the Features note above) — every other slot renders as described.
-4. **Layout** — skip `ListingLayout` entirely and arrange the structure-only compound components yourself: `ListingList`, `ListingMap`, `ListingFilters`, `ListingResultHeader`, `ListingToolbar`, `ListingPagination`.
+3. **Presentation** — swap any slot via `ListingComponentsProvider` (or start from `react-listing-engine/styled`'s `StyledComponentsProviderWithDefaults` for the styled look and override only what you need). Injectable slots: `Card`, `Marker`, `Popup`, `Sidebar`, `FilterPanel`, `Search`, `Empty`, `Loading`, `ResultHeader`, `Toolbar`. `Marker`/`Popup` are defined but not yet wired into the map's render output (see the Features note above) — every other slot renders as described.
+4. **Layout** — skip `StyledListingLayout` entirely and arrange the structure-only compound components yourself: `ListingList`, `ListingMap`, `ListingFilters`, `ListingResultHeader`, `ListingToolbar`, `ListingPagination`.
 
 ## Google Maps setup
 

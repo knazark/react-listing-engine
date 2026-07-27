@@ -2,7 +2,7 @@
 
 import { useListingComponents } from '~/react';
 
-import { AddIcon, FiltersIcon, type IBottomNavAction } from './bottom-nav';
+import type { IBottomNavAction } from './bottom-nav';
 
 export interface IMobileHeaderProps {
 	/**
@@ -19,8 +19,9 @@ export interface IMobileHeaderProps {
 }
 
 /**
- * Mobile-only sticky header (`.rle-mobile-header`, shown below 768px, hidden at
- * 768px+ by CSS): the search input (left, flex-grows), a **Filters** button
+ * Mobile-only sticky header (`.rle-mobile-header`, CSS-hidden above the mobile
+ * breakpoint -- see `styles.css`'s layout-shell section, the single source of
+ * truth for it): the search input (left, flex-grows), a **Filters** button
  * that opens the mobile `BottomSheet`, and the optional caller `action` (e.g.
  * "Save") as a trailing icon button. This is the compact mobile counterpart to
  * the desktop `.rle-filter-bar`: the desktop bar shows the same search plus the
@@ -38,7 +39,7 @@ export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }
 				</div>
 			)}
 
-			<button type="button" className="rle-mobile-header__btn" onClick={onFiltersClick}>
+			<button type="button" className="rle-btn rle-mobile-header__btn" onClick={onFiltersClick}>
 				<FiltersIcon />
 				<span>Filters</span>
 				{filterCount > 0 && <span className="rle-mobile-header__count">{filterCount}</span>}
@@ -47,7 +48,7 @@ export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }
 			{action && (
 				<button
 					type="button"
-					className="rle-mobile-header__btn rle-mobile-header__btn--icon"
+					className="rle-btn rle-mobile-header__btn rle-mobile-header__btn--icon"
 					onClick={action.onClick}
 					aria-label={action.label}
 				>
@@ -55,5 +56,45 @@ export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }
 				</button>
 			)}
 		</header>
+	);
+}
+
+function FiltersIcon() {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth={2}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<line x1="4" y1="6" x2="20" y2="6" />
+			<circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
+			<line x1="4" y1="12" x2="20" y2="12" />
+			<circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+			<line x1="4" y1="18" x2="20" y2="18" />
+			<circle cx="11" cy="18" r="2" fill="currentColor" stroke="none" />
+		</svg>
+	);
+}
+
+function AddIcon() {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth={2}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<line x1="12" y1="5" x2="12" y2="19" />
+			<line x1="5" y1="12" x2="19" y2="12" />
+		</svg>
 	);
 }

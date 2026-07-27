@@ -4,6 +4,10 @@ import type { ReactNode } from 'react';
 
 export type BottomNavView = 'list' | 'map';
 
+/**
+ * An action button in the mobile chrome (e.g. "Add"/"Save"). Despite the
+ * name (kept for API compatibility), it renders in `MobileHeader`, not here.
+ */
 export interface IBottomNavAction {
 	label: string;
 	icon?: ReactNode;
@@ -16,8 +20,9 @@ export interface IBottomNavProps {
 }
 
 /**
- * Mobile-only bottom navigation (`.rle-bottom-nav`, hidden at 768px+ by CSS --
- * see `styles.css`): a floating **List | Map** segmented toggle
+ * Mobile-only bottom navigation (`.rle-bottom-nav`, CSS-hidden above the
+ * mobile breakpoint -- see `styles.css`'s layout-shell section, the single
+ * source of truth for it): a floating **List | Map** segmented toggle
  * (`.rle-viewtoggle`) that drives which of `StyledListingLayout`'s two
  * full-area panels is visible. The **Filters** button and the optional caller
  * action (e.g. "Save") live in the mobile header (`MobileHeader`) instead, so
@@ -49,28 +54,6 @@ export function BottomNav({ view, onViewChange }: IBottomNavProps) {
 				</button>
 			</div>
 		</nav>
-	);
-}
-
-export function FiltersIcon() {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth={2}
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-		>
-			<line x1="4" y1="6" x2="20" y2="6" />
-			<circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
-			<line x1="4" y1="12" x2="20" y2="12" />
-			<circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
-			<line x1="4" y1="18" x2="20" y2="18" />
-			<circle cx="11" cy="18" r="2" fill="currentColor" stroke="none" />
-		</svg>
 	);
 }
 
@@ -115,24 +98,6 @@ function MapIcon() {
 			<polygon points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21 1 6" />
 			<line x1="8" y1="3" x2="8" y2="18" />
 			<line x1="16" y1="6" x2="16" y2="21" />
-		</svg>
-	);
-}
-
-export function AddIcon() {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth={2}
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			aria-hidden="true"
-		>
-			<line x1="12" y1="5" x2="12" y2="19" />
-			<line x1="5" y1="12" x2="19" y2="12" />
 		</svg>
 	);
 }
