@@ -1,5 +1,19 @@
 # react-listing-engine
 
+## 0.7.0
+
+### Minor Changes
+
+- Add Airbnb-style map interactivity.
+
+  - **Marker hover/selected repaint:** new `hovered` store state + `setHovered`, exposed on `useListingMap()`. `MapProvider.updateMarkerStates` toggles `rle-marker--selected` / `rle-marker--hovered` classes on marker containers (consumers style them). The highlight persists across marker recreation on pan/zoom.
+  - **On-map Popup:** the previously-inert `Popup` component slot now renders as an anchored `OverlayView` when a marker is selected. It stays anchored while panning and dismisses on the popup's close, `Esc`, or a map-background click. Backed by new `MapProvider.mountOverlay` and `MapProvider.onMapClick`.
+  - **Map controls slot:** `ListingApp` gains an optional `mapControls?: ReactNode` overlay slot, and `useListingMap()` gains `zoomIn()`, `zoomOut()`, `toggleFullscreen()`. Fullscreen targets the map wrapper so custom controls stay visible.
+
+  Consumers who don't use the new props/slots see no behavior change.
+
+  **Interface change (minor, pre-1.0):** the `MapProvider` interface gained required methods — `updateMarkerStates`, `mountOverlay`, `onMapClick`, `zoomIn`, `zoomOut`, `toggleFullscreen`. The built-in `googleProvider` and `FakeMapProvider` implement them; external custom `MapProvider` implementations must add them to compile against 0.7.0.
+
 ## 0.6.9
 
 ### Patch Changes
