@@ -3,14 +3,36 @@ import type { ComponentType } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FilterRegistry } from '~/core';
-import type { DatasetDefinition, FilterControlProps, LatLng } from '~/interfaces';
+import type { DatasetDefinition, FilterControlProps, LatLng, MapHandle } from '~/interfaces';
 import type { IListingCardProps } from '~/react';
 import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
 import { ListingApp } from '..';
 
+// `ListingApp`'s `{ apiKey }` shorthand resolves via a DYNAMIC `import('~/maps/google')` inside
+// `useResolvedMap`, so we mock that module to capture the exact config forwarded to `googleProvider`
+// (proving `styles`/`mapOptions` are passed through). The other tests in this file use `map.provider`
+// or no map, so they never call `googleProvider` and are unaffected by this mock. A no-op
+// `MapProvider` stub is returned so the app still mounts a "map" without a real Google loader.
+const googleProviderConfigs: Array<Record<string, unknown>> = [];
+
+vi.mock('~/maps/google', () => ({
+	googleProvider: (config: Record<string, unknown>) => {
+		googleProviderConfigs.push(config);
+		const noopUnsub = () => {};
+		return {
+			mount: (): MapHandle => ({ raw: {} }),
+			renderLayer: () => noopUnsub,
+			onBoundsChange: () => noopUnsub,
+			fitBounds: () => {},
+			destroy: () => {},
+		};
+	},
+}));
+
 afterEach(() => {
 	cleanup();
+	googleProviderConfigs.length = 0;
 });
 
 // -----------------------------------------------------------------------------
@@ -115,6 +137,28 @@ describe('ListingApp (styled)', () => {
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 		await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
 		expect(screen.queryByText('Map unavailable')).not.toBeInTheDocument();
+	});
+
+	it('forwards styles + mapOptions (api-key shape) into the internally-built googleProvider', async () => {
+		const styles = [{ elementType: 'geometry', stylers: [{ color: '#242f3e' }] }] as google.maps.MapTypeStyle[];
+		const mapOptions: Partial<google.maps.MapOptions> = { disableDefaultUI: true, minZoom: 3 };
+
+		render(
+			<ListingApp<ListingRow, Filters>
+				datasets={[makeDataset()]}
+				config={{ debounceMs: 0 }}
+				map={{ apiKey: 'test-key', mapId: 'ignored-with-styles', styles, mapOptions }}
+			/>,
+		);
+
+		// The dynamic import + googleProvider() call happen in a resolve-map effect, so wait for it.
+		await waitFor(() => expect(googleProviderConfigs.length).toBeGreaterThan(0));
+
+		const config = googleProviderConfigs.at(-1)!;
+		expect(config.apiKey).toBe('test-key');
+		expect(config.mapId).toBe('ignored-with-styles');
+		expect(config.styles).toBe(styles);
+		expect(config.mapOptions).toBe(mapOptions);
 	});
 
 	it('initialFilters hydrate into the FIRST query -- only the matching row renders', async () => {

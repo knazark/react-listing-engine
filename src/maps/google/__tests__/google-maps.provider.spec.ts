@@ -15,20 +15,31 @@ interface FakeListener {
   remove: ReturnType<typeof vi.fn>;
 }
 
+// Advanced mode sets `mapId`; `styles` (OverlayView) mode sets `styles` and NO `mapId` -- both are
+// optional here so one type covers a Map constructed in either mode.
+interface FakeMapOptions {
+  center: unknown;
+  zoom: unknown;
+  mapId?: unknown;
+  styles?: unknown;
+}
+
 class FakeMap {
   center: unknown;
   zoom: unknown;
   mapId: unknown;
+  styles: unknown;
   private readonly listeners: Record<string, Array<() => void>> = {};
   bounds: { getSouthWest(): { lat(): number; lng(): number }; getNorthEast(): { lat(): number; lng(): number } } | undefined;
 
   constructor(
     public el: HTMLElement,
-    opts: { center: unknown; zoom: unknown; mapId: unknown },
+    opts: FakeMapOptions,
   ) {
     this.center = opts.center;
     this.zoom = opts.zoom;
     this.mapId = opts.mapId;
+    this.styles = opts.styles;
   }
 
   addListener(event: string, handler: () => void): FakeListener {
@@ -137,16 +148,69 @@ class FakePinElement {
   }
 }
 
+// --- Fake `google.maps.OverlayView` + `google.maps.LatLng` ---------------
+//
+// `styles` (no-`mapId`) mode makes the provider lazily define an `OverlayView` subclass (its
+// `HtmlMarkerOverlay`, via `getHtmlMarkerCtor`) that renders each marker as an absolutely
+// positioned HTML div and is added/removed through the inherited `setMap`. Neither
+// `google.maps.OverlayView` nor `google.maps.LatLng` exists in this Node test process, so both are
+// stubbed onto the `google` global (see `beforeEach`). This base fake records every instance and,
+// on `setMap`, drives the subclass's own `onAdd`/`draw`/`onRemove` (exactly as the real Maps
+// runtime does when a map is set/unset) so the overlay's DOM building is genuinely exercised.
+//
+// NOTE: the provider caches its `HtmlMarkerOverlay` ctor module-wide on first use, freezing this
+// exact `FakeOverlayView` as the base class -- which is fine because every test stubs the SAME
+// class reference here.
+
+let createdOverlays: FakeOverlayView[] = [];
+
+class FakeOverlayView {
+  // The pane the overlay's DOM is mounted into. Kept per-instance (not `document`) so tests can
+  // query an overlay's own content without cross-test DOM bleed.
+  readonly pane = document.createElement('div');
+
+  readonly setMap = vi.fn((map: unknown) => {
+    // The real OverlayView triggers onAdd()+draw() when added to a map, and onRemove() when
+    // removed (setMap(null)). The subclass defines these on its prototype, so `this.onAdd` etc.
+    // resolve to the subclass overrides.
+    if (map) {
+      (this as unknown as { onAdd(): void }).onAdd();
+      (this as unknown as { draw(): void }).draw();
+    } else {
+      (this as unknown as { onRemove(): void }).onRemove();
+    }
+  });
+
+  constructor() {
+    createdOverlays.push(this);
+  }
+
+  getPanes() {
+    return { overlayMouseTarget: this.pane };
+  }
+
+  getProjection() {
+    return { fromLatLngToDivPixel: () => ({ x: 5, y: 7 }) };
+  }
+}
+
+class FakeLatLng {
+  constructor(
+    public readonly lat: number,
+    public readonly lng: number,
+  ) {}
+}
+
 let fitBoundsCalls: Bounds[] = [];
 let createdMarkers: FakeAdvancedMarkerElement[] = [];
-let mapConstructorCalls: Array<{ el: HTMLElement; opts: { center: unknown; zoom: unknown; mapId: unknown } }> = [];
+let mapConstructorCalls: Array<{ el: HTMLElement; opts: FakeMapOptions }> = [];
 
 const setOptionsMock = vi.fn();
 const importLibraryMock = vi.fn(async (name: string) => {
   if (name === 'maps') {
     return {
       Map: class extends FakeMap {
-        constructor(el: HTMLElement, opts: { center: unknown; zoom: unknown; mapId: unknown }) {
+        constructor(el: HTMLElement, opts: FakeMapOptions) {
           super(el, opts);
           mapConstructorCalls.push({ el, opts });
         }
@@ -221,10 +285,15 @@ describe('googleProvider', () => {
     resizeObserverInstances = [];
     setCenterCalls = [];
     createdClusterers = [];
+    createdOverlays = [];
 
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('requestAnimationFrame', vi.fn());
-    vi.stubGlobal('google', { maps: { event: { trigger: eventTriggerMock } } });
+    // `OverlayView`/`LatLng` are added for `styles`-mode tests; harmless to advanced-mode tests,
+    // which never touch them.
+    vi.stubGlobal('google', {
+      maps: { event: { trigger: eventTriggerMock }, OverlayView: FakeOverlayView, LatLng: FakeLatLng },
+    });
   });
 
   afterEach(() => {
@@ -278,7 +347,7 @@ describe('googleProvider', () => {
 
     await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 14 });
 
-    const opts = mapConstructorCalls[0].opts as Record<string, unknown>;
+    const opts = mapConstructorCalls[0].opts as unknown as Record<string, unknown>;
     // Pass-through options are applied...
     expect(opts.minZoom).toBe(2.5);
     expect(opts.maxZoom).toBe(17);
@@ -665,6 +734,118 @@ describe('googleProvider', () => {
 
       expect(createdClusterers[0].setMap).toHaveBeenCalledWith(null);
       expect(createdClusterers[1].setMap).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('styles (OverlayView) mode', () => {
+    const styles = [
+      { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+    ] as google.maps.MapTypeStyle[];
+
+    it('mount creates the Map WITH styles and WITHOUT a mapId when config.styles is supplied', async () => {
+      const provider = googleProvider({ apiKey: 'k', mapId: 'ignored-in-styles-mode', styles });
+
+      await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 8 });
+
+      expect(mapConstructorCalls).toHaveLength(1);
+      const opts = mapConstructorCalls[0].opts;
+      // Legacy JSON styling only applies on a map with no Map ID -- so `styles` is set and `mapId`
+      // is never sent, even though a `mapId` was also (wrongly) supplied above.
+      expect(opts.styles).toBe(styles);
+      expect(opts.mapId).toBeUndefined();
+    });
+
+    it('renderLayer creates OverlayView markers (not AdvancedMarkerElements) and adds them via setMap', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap; markerMode: string };
+      const layer = makeLayer({
+        markers: [
+          { id: 1, position: { lat: 1, lng: 1 } },
+          { id: 2, position: { lat: 2, lng: 2 } },
+        ],
+      });
+
+      provider.renderLayer(handle, layer);
+
+      // Overlay markers, not advanced markers.
+      expect(raw.markerMode).toBe('overlay');
+      expect(createdOverlays).toHaveLength(2);
+      expect(createdMarkers).toHaveLength(0);
+      // Each overlay was added to the map via setMap(map) at creation.
+      for (const overlay of createdOverlays) {
+        expect(overlay.setMap).toHaveBeenCalledWith(raw.map);
+      }
+    });
+
+    it('overlay markers render iconUrl content as an <img> and fire onMarkerClick when clicked', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const onMarkerClick = vi.fn();
+      const layer = makeLayer({
+        markers: [{ id: 'biz', position: { lat: 1, lng: 1 }, iconUrl: 'https://example.test/icon.png' }],
+        onMarkerClick,
+      });
+
+      provider.renderLayer(handle, layer);
+
+      // onAdd() ran (via the fake setMap), appending an <img> whose src is the marker's iconUrl
+      // into the overlay's own pane.
+      const img = createdOverlays[0].pane.querySelector('img');
+      expect(img).not.toBeNull();
+      expect(img?.getAttribute('src')).toBe('https://example.test/icon.png');
+
+      // Clicking the overlay's wrapper div fires onMarkerClick with the marker id.
+      const wrapper = img?.parentElement as HTMLElement;
+      wrapper.click();
+      expect(onMarkerClick).toHaveBeenCalledTimes(1);
+      expect(onMarkerClick).toHaveBeenCalledWith('biz');
+    });
+
+    it('renderLayer unsubscribe tears down overlay markers via setMap(null)', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+
+      const unsubscribe = provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
+      expect(createdOverlays).toHaveLength(1);
+      expect(createdOverlays[0].setMap).not.toHaveBeenCalledWith(null);
+
+      unsubscribe();
+
+      expect(createdOverlays[0].setMap).toHaveBeenCalledWith(null);
+    });
+
+    it('destroy tears down every overlay marker via setMap(null)', async () => {
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      provider.renderLayer(handle, makeLayer({ id: 'a', markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
+      provider.renderLayer(handle, makeLayer({ id: 'b', markers: [{ id: 2, position: { lat: 2, lng: 2 } }] }));
+
+      expect(createdOverlays).toHaveLength(2);
+      provider.destroy(handle);
+
+      for (const overlay of createdOverlays) {
+        expect(overlay.setMap).toHaveBeenCalledWith(null);
+      }
+    });
+
+    it('skips clustering in overlay mode: no MarkerClusterer, warns once', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+
+      provider.renderLayer(handle, makeLayer({ id: 'a', clustering: { maxZoom: 10 } }));
+      provider.renderLayer(handle, makeLayer({ id: 'b', clustering: { maxZoom: 10 } }));
+
+      // No clusterer ever constructed, overlay markers still rendered plain.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(createdClusterers).toHaveLength(0);
+      expect(createdOverlays).toHaveLength(2);
+      // Warned exactly once (module-level flag), mentioning the unsupported mode.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0][0])).toContain('OverlayView');
+
+      warnSpy.mockRestore();
     });
   });
 });

@@ -29,7 +29,16 @@ import { StyledListingLayout, type IStyledListingLayoutProps } from './listing-l
  */
 export type ListingAppMapProp =
 	| { provider: MapProvider; center?: LatLng; zoom?: number }
-	| { apiKey: string; mapId?: string; center?: LatLng; zoom?: number };
+	| {
+			apiKey: string;
+			mapId?: string;
+			/** Extra `google.maps.MapOptions` forwarded to the internally-built `googleProvider` (zoom envelope, UI chrome, gesture handling, ...). */
+			mapOptions?: Partial<google.maps.MapOptions>;
+			/** Legacy JSON map styling forwarded to `googleProvider` -- switches it into no-`mapId` OverlayView marker mode (mutually exclusive with `mapId`); see `GoogleMapsProviderConfig.styles`. */
+			styles?: google.maps.MapTypeStyle[];
+			center?: LatLng;
+			zoom?: number;
+	  };
 
 // TEntity intentionally omitted here: `datasets` is entity-erased
 // (`DatasetDefinition<any, TFilters>[]`, see its own field doc below), so
@@ -118,6 +127,8 @@ function useResolvedMap(map: ListingAppMapProp | undefined): MapResolution {
 	const isApiKeyShape = map != null && !isMapProviderShape(map);
 	const apiKey = isApiKeyShape ? (map as { apiKey: string }).apiKey : undefined;
 	const mapId = isApiKeyShape ? (map as { mapId?: string }).mapId : undefined;
+	const mapOptions = isApiKeyShape ? (map as { mapOptions?: Partial<google.maps.MapOptions> }).mapOptions : undefined;
+	const styles = isApiKeyShape ? (map as { styles?: google.maps.MapTypeStyle[] }).styles : undefined;
 
 	const [state, setState] = useState<MapResolution>(() =>
 		!map || isMapProviderShape(map) ? { ready: true, provider: map?.provider } : { ready: false },
@@ -129,12 +140,17 @@ function useResolvedMap(map: ListingAppMapProp | undefined): MapResolution {
 
 		void import('~/maps/google').then(({ googleProvider }) => {
 			if (cancelled) return;
-			setState({ ready: true, provider: googleProvider({ apiKey, mapId }) });
+			setState({ ready: true, provider: googleProvider({ apiKey, mapId, mapOptions, styles }) });
 		});
 
 		return () => {
 			cancelled = true;
 		};
+		// `mapOptions`/`styles` are read ONCE here as initial map-construction options (like
+		// `apiKey`/`mapId`), NOT reactive deps: they are objects/arrays whose inline identity changes
+		// every render, so including them would remount the whole map on every render. Same read-once
+		// treatment ListingMap's mount effect gives its `center`/`zoom`.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [apiKey, mapId]);
 
 	return state;

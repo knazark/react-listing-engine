@@ -21,6 +21,15 @@ type AdvancedMarker = google.maps.marker.AdvancedMarkerElement;
 type GoogleMapsEventListener = google.maps.MapsEventListener;
 type GoogleLatLngBounds = google.maps.LatLngBounds;
 type LayerMarkerSpec = RenderedLayer['markers'][number];
+/**
+ * An `OverlayView`-backed HTML marker (see `getHtmlMarkerCtor`), used only in `styles`
+ * (no-`mapId`) mode. Structurally it's just a `google.maps.OverlayView` -- all the provider needs
+ * from it externally is `setMap()`, which `OverlayView` already exposes.
+ */
+type HtmlMarker = google.maps.OverlayView;
+interface HtmlMarkerCtor {
+  new (position: LatLng, content: HTMLElement, onClick?: () => void): HtmlMarker;
+}
 
 export interface GoogleMapsProviderConfig {
   /** Google Maps JavaScript API key. Required -- there is no hardcoded fallback. */
@@ -47,10 +56,23 @@ export interface GoogleMapsProviderConfig {
    * handling, `clickableIcons`, etc. Spread FIRST, so the provider's own required keys always
    * win over it: `mapId` here is ignored (use the `mapId` field), and `center`/`zoom` here are
    * ignored (they come from the per-mount `MapInitOptions`). NOTE: the legacy `styles` array is
-   * IGNORED by Google whenever a `mapId` is present (a Map ID always is here) -- style a Map ID
-   * via the Cloud Console, not here.
+   * IGNORED by Google whenever a `mapId` is present -- to apply legacy JSON styling, use the
+   * top-level `styles` field (which switches the provider into no-`mapId` OverlayView marker
+   * mode) rather than putting `styles` here, or style a Map ID via the Cloud Console.
    */
   mapOptions?: Partial<google.maps.MapOptions>;
+  /**
+   * Legacy JSON map styling (`google.maps.MapTypeStyle[]`). MUTUALLY EXCLUSIVE with `mapId`:
+   * Google IGNORES JSON `styles` whenever a Map ID is present, and `AdvancedMarkerElement`
+   * REQUIRES a Map ID -- so the two cannot coexist. Supplying `styles` therefore switches the
+   * provider into a NO-`mapId` mode: the map is created with these `styles` (and no Map ID), and
+   * markers are rendered as `OverlayView` HTML overlays -- which need no Map ID -- instead of
+   * `AdvancedMarkerElement`s. `mapId` is ignored while `styles` is set. Clustering
+   * (`layer.clustering`) is NOT supported in this OverlayView mode (`MarkerClusterer` only manages
+   * `Marker`/`AdvancedMarkerElement`) and is skipped with a one-time console warning. Omit
+   * `styles` to keep the default advanced-marker (`mapId`) path.
+   */
+  styles?: google.maps.MapTypeStyle[];
 }
 
 /**
@@ -65,7 +87,14 @@ const DEFAULT_MAP_ID = 'DEMO_MAP_ID';
 interface GoogleMapRaw {
   map: GoogleMap;
   markerLib: MarkerLibrary;
-  layers: Map<string, AdvancedMarker[]>;
+  /**
+   * Which marker implementation this map uses, decided once at `mount` from whether `config.styles`
+   * was supplied: `'advanced'` = `AdvancedMarkerElement` (default, needs a `mapId`), `'overlay'` =
+   * `OverlayView` HTML markers (no `mapId`, so JSON `styles` apply). See `GoogleMapsProviderConfig.styles`.
+   */
+  markerMode: 'advanced' | 'overlay';
+  /** Per-layer live markers -- `AdvancedMarkerElement`s in advanced mode, `OverlayView`s in overlay mode. */
+  layers: Map<string, AdvancedMarker[] | HtmlMarker[]>;
   /** One active `MarkerClusterer` per clustered layer id -- see `setupClustering`/`disposeClusterer`. */
   clusterers: Map<string, MarkerClustererInstance>;
   boundsListeners: Set<GoogleMapsEventListener>;
@@ -89,9 +118,102 @@ function resolveMarkerContent(marker: LayerMarkerSpec, markerLib: MarkerLibrary)
   return undefined;
 }
 
-function removeMarkers(markers: AdvancedMarker[]): void {
+const OVERLAY_DOT_SIZE_PX = 12;
+const OVERLAY_DOT_COLOR = '#b3261e';
+
+/**
+ * Overlay-mode counterpart to `resolveMarkerContent`. Unlike `AdvancedMarkerElement` (which has a
+ * built-in default pin when `content` is unset), an `OverlayView` HTML marker has no fallback, so
+ * this ALWAYS returns a real `HTMLElement`: the marker's own `element`, else an `<img>` for its
+ * `iconUrl`, else a small default dot.
+ */
+function resolveOverlayContent(marker: LayerMarkerSpec): HTMLElement {
+  if (marker.element) return marker.element;
+  if (marker.iconUrl) {
+    const img = document.createElement('img');
+    img.src = marker.iconUrl;
+    return img;
+  }
+  const dot = document.createElement('div');
+  dot.style.width = `${OVERLAY_DOT_SIZE_PX}px`;
+  dot.style.height = `${OVERLAY_DOT_SIZE_PX}px`;
+  dot.style.borderRadius = '50%';
+  dot.style.backgroundColor = OVERLAY_DOT_COLOR;
+  dot.style.border = '2px solid #ffffff';
+  dot.style.boxShadow = '0 1px 4px rgba(0, 0, 0, 0.4)';
+  return dot;
+}
+
+// The `OverlayView` subclass can only be *defined* once the Maps JS `maps` library has loaded
+// (`google.maps.OverlayView` doesn't exist before that), so it's built lazily on first use and
+// cached in this module-level slot -- see `getHtmlMarkerCtor`.
+let htmlMarkerCtor: HtmlMarkerCtor | undefined;
+
+/**
+ * Lazily defines (and caches) an `OverlayView` subclass that renders `content` as an absolutely
+ * positioned HTML `div` centered on a lat/lng. Used only in `styles` (no-`mapId`) mode, where
+ * `AdvancedMarkerElement` isn't available. Must be called only after the `maps` library has loaded.
+ */
+function getHtmlMarkerCtor(): HtmlMarkerCtor {
+  if (htmlMarkerCtor) return htmlMarkerCtor;
+
+  class HtmlMarkerOverlay extends google.maps.OverlayView {
+    private div: HTMLDivElement | null = null;
+
+    constructor(
+      private readonly position: LatLng,
+      private readonly content: HTMLElement,
+      private readonly onClick?: () => void,
+    ) {
+      super();
+    }
+
+    override onAdd(): void {
+      const div = document.createElement('div');
+      div.style.position = 'absolute';
+      // Center the content on the coordinate rather than anchoring its top-left corner there.
+      div.style.transform = 'translate(-50%, -50%)';
+      if (this.onClick) {
+        div.style.cursor = 'pointer';
+        div.addEventListener('click', this.onClick);
+      }
+      div.appendChild(this.content);
+      this.div = div;
+      this.getPanes()?.overlayMouseTarget.appendChild(div);
+    }
+
+    override draw(): void {
+      if (!this.div) return;
+      const projection = this.getProjection();
+      if (!projection) return;
+      const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(this.position.lat, this.position.lng));
+      if (!point) return;
+      this.div.style.left = `${point.x}px`;
+      this.div.style.top = `${point.y}px`;
+    }
+
+    override onRemove(): void {
+      this.div?.remove();
+      this.div = null;
+    }
+  }
+
+  htmlMarkerCtor = HtmlMarkerOverlay;
+  return htmlMarkerCtor;
+}
+
+/**
+ * Detaches every marker from the map, handling BOTH marker kinds: `OverlayView` HTML markers
+ * (overlay mode) via `setMap(null)`, `AdvancedMarkerElement`s (advanced mode) via `.map = null`.
+ * They're distinguished structurally -- only `OverlayView` exposes a `setMap` method.
+ */
+function removeMarkers(markers: ReadonlyArray<AdvancedMarker | HtmlMarker>): void {
   for (const marker of markers) {
-    marker.map = null;
+    if (typeof (marker as HtmlMarker).setMap === 'function') {
+      (marker as HtmlMarker).setMap(null);
+    } else {
+      (marker as AdvancedMarker).map = null;
+    }
   }
 }
 
@@ -201,6 +323,50 @@ function disposeClusterer(raw: GoogleMapRaw, layerId: string): void {
   raw.clusterers.delete(layerId);
 }
 
+// Logged at most once per page load (module-level flag) -- a consumer using `styles` mode with
+// `layer.clustering` set is a static configuration fact, not a per-render event.
+let overlayClusteringWarned = false;
+
+/** Warns (once) that clustering is ignored in `styles` (OverlayView) mode. See `GoogleMapsProviderConfig.styles`. */
+function warnOverlayClusteringUnsupported(): void {
+  if (overlayClusteringWarned) return;
+  overlayClusteringWarned = true;
+  console.warn(
+    '[react-listing-engine] Marker clustering is not supported in `styles` (OverlayView) mode -- ' +
+      '"@googlemaps/markerclusterer" only manages Marker/AdvancedMarkerElement instances. Rendering ' +
+      'plain, unclustered overlay markers instead. Use a `mapId` (advanced-marker mode) to enable clustering.',
+  );
+}
+
+/** Creates one `AdvancedMarkerElement` per spec, live on `raw.map` (default advanced mode). */
+function createAdvancedMarkers(raw: GoogleMapRaw, layer: RenderedLayer): AdvancedMarker[] {
+  return layer.markers.map((marker) => {
+    const advancedMarker = new raw.markerLib.AdvancedMarkerElement({
+      map: raw.map,
+      position: marker.position,
+      content: resolveMarkerContent(marker, raw.markerLib),
+      gmpClickable: Boolean(layer.onMarkerClick),
+    });
+    if (layer.onMarkerClick) {
+      const onMarkerClick = layer.onMarkerClick;
+      advancedMarker.addListener('click', () => onMarkerClick(marker.id));
+    }
+    return advancedMarker;
+  });
+}
+
+/** Creates one `OverlayView` HTML marker per spec, live on `raw.map` (`styles`/no-`mapId` mode). */
+function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMarker[] {
+  const HtmlMarkerOverlay = getHtmlMarkerCtor();
+  return layer.markers.map((marker) => {
+    const onMarkerClick = layer.onMarkerClick;
+    const onClick = onMarkerClick ? () => onMarkerClick(marker.id) : undefined;
+    const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick);
+    htmlMarker.setMap(raw.map);
+    return htmlMarker;
+  });
+}
+
 function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
   const southWest = bounds.getSouthWest();
   const northEast = bounds.getNorthEast();
@@ -293,16 +459,21 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const mapsLib = await importLibrary('maps');
       const markerLib = await importLibrary('marker');
       const center = opts.center ?? { lat: 0, lng: 0 };
+      // `styles` and `mapId` are mutually exclusive (see `GoogleMapsProviderConfig.styles`):
+      // supplying `styles` creates the map WITHOUT a `mapId` (so JSON styling applies) and drives
+      // OverlayView markers; otherwise the default advanced-marker (`mapId`) path is used.
+      const useOverlayMode = config.styles != null;
       const map = new mapsLib.Map(el, {
         ...config.mapOptions,
         center,
         zoom: opts.zoom ?? 10,
-        mapId: config.mapId ?? DEFAULT_MAP_ID,
+        ...(useOverlayMode ? { styles: config.styles } : { mapId: config.mapId ?? DEFAULT_MAP_ID }),
       });
       const resizeObserver = observeContainerResize(el, map, center);
       const raw: GoogleMapRaw = {
         map,
         markerLib,
+        markerMode: useOverlayMode ? 'overlay' : 'advanced',
         layers: new Map(),
         clusterers: new Map(),
         boundsListeners: new Set(),
@@ -325,25 +496,20 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // still-in-flight PREVIOUS call from ever out-living this one.
       disposeClusterer(raw, layer.id);
 
-      const created: AdvancedMarker[] = layer.markers.map((marker) => {
-        const advancedMarker = new raw.markerLib.AdvancedMarkerElement({
-          map: raw.map,
-          position: marker.position,
-          content: resolveMarkerContent(marker, raw.markerLib),
-          gmpClickable: Boolean(layer.onMarkerClick),
-        });
-        if (layer.onMarkerClick) {
-          const onMarkerClick = layer.onMarkerClick;
-          advancedMarker.addListener('click', () => onMarkerClick(marker.id));
-        }
-        return advancedMarker;
-      });
+      const created: AdvancedMarker[] | HtmlMarker[] =
+        raw.markerMode === 'overlay' ? createOverlayMarkers(raw, layer) : createAdvancedMarkers(raw, layer);
       raw.layers.set(layer.id, created);
 
       if (layer.clustering) {
-        // Fire-and-forget: `setupClustering` is the only async step in this otherwise
-        // synchronous render path (see its doc comment for the staleness guard this implies).
-        void setupClustering(raw, layer.id, created, layer.clustering);
+        if (raw.markerMode === 'overlay') {
+          // `MarkerClusterer` only manages Marker/AdvancedMarkerElement, not OverlayView markers --
+          // warn once and leave the overlay markers rendered plain (unclustered).
+          warnOverlayClusteringUnsupported();
+        } else {
+          // Fire-and-forget: `setupClustering` is the only async step in this otherwise
+          // synchronous render path (see its doc comment for the staleness guard this implies).
+          void setupClustering(raw, layer.id, created as AdvancedMarker[], layer.clustering);
+        }
       }
 
       let disposed = false;

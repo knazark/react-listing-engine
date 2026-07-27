@@ -1,5 +1,14 @@
 # react-listing-engine
 
+## 0.6.9
+
+### Patch Changes
+
+- Support JSON `styles` map styling (no Map ID) with OverlayView HTML markers, and forward `mapOptions`/`styles` through `ListingApp`.
+
+  - `googleProvider` gains a `styles?: google.maps.MapTypeStyle[]` config. When set, the map is created WITHOUT a `mapId` (so Google honors the JSON `styles`) and markers render as `OverlayView` HTML overlays instead of `AdvancedMarkerElement` (which requires a Map ID). The default `mapId` + `AdvancedMarkerElement` + clustering path is unchanged; clustering is unsupported in overlay mode (warns once).
+  - The styled `ListingApp` now forwards `mapOptions` and `styles` from its `{ apiKey, ... }` map prop into the internally-built `googleProvider` (previously only `apiKey`/`mapId` were forwarded, silently dropping `mapOptions`).
+
 ## 0.6.8
 
 ### Patch Changes
