@@ -61,7 +61,7 @@ export function PropertySearch() {
           fromParams: f => f.q ?? '',
         })
       }
-      map={{ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY!, mapId: 'YOUR_MAP_ID' }}
+      map={{ apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY! }}
     />
   );
 }
@@ -83,12 +83,14 @@ import { googleProvider } from 'react-listing-engine/maps/google';
 
 const map = googleProvider({
   apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY!, // required — no hardcoded fallback
-  mapId: 'YOUR_MAP_ID', // required by Google for AdvancedMarkerElement
+  mapId: 'YOUR_MAP_ID', // optional — defaults to Google's zero-config dev 'DEMO_MAP_ID'
 });
 ```
 
 - `apiKey` always comes from **your** env/config; `googleProvider` throws immediately if it's falsy.
-- `mapId` is required by Google to render `AdvancedMarkerElement` markers.
+- `mapId` is what Google requires to render `AdvancedMarkerElement` markers. It defaults to Google's documented zero-config dev Map ID (`'DEMO_MAP_ID'`), so markers work out of the box — supply your own Cloud Console Map ID for production traffic or Cloud-based map styling.
+- `mapOptions` (optional) forwards extra `google.maps.MapOptions` to every map the provider creates — zoom envelope (`minZoom`/`maxZoom`), UI chrome (`disableDefaultUI`, `zoomControl`), gesture handling, etc. The provider's own `mapId`/`center`/`zoom` always win over it.
+- `styles` (optional) applies legacy JSON map styling (`google.maps.MapTypeStyle[]`). Mutually exclusive with `mapId` — Google ignores JSON styles whenever a Map ID is present — so setting it switches the provider into a no-Map-ID mode that renders markers as `OverlayView` HTML overlays instead of `AdvancedMarkerElement`s. Marker clustering isn't supported in this mode (it falls back to plain markers with a one-time console warning).
 - `loaderOptions` (optional) forwards extra `@googlemaps/js-api-loader` config (language, region, preloaded libraries); `key` is always taken from `apiKey` and can't be overridden there.
 - `DatasetDefinition.clustering` (`{ maxZoom }` or `false`) is implemented by the shipped `googleProvider`: when set, that layer's markers are wrapped in a `MarkerClusterer` (from the OPTIONAL peer dependency `@googlemaps/markerclusterer` — install it to enable clustering; without it, `googleProvider` warns once and falls back to plain, unclustered markers, no crash) with a custom renderer that draws a solid red circle showing the cluster's count. No Mapbox provider ships either; `MapProvider` is the seam if you want to add one.
 
