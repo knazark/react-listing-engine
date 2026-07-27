@@ -282,6 +282,28 @@ describe('useListingMap', () => {
 
     expect(result.current.state.selection).toBe('a');
   });
+
+  it('hovered starts null; setHovered() updates it without touching selection', async () => {
+    const { result } = renderHook(
+      () => ({ map: useListingMap(), state: useListingState<Property, Filters>() }),
+      { wrapper: Wrapper },
+    );
+
+    expect(result.current.map.hovered).toBeNull();
+
+    act(() => {
+      result.current.map.setHovered('a');
+    });
+
+    expect(result.current.state.hovered).toBe('a');
+    expect(result.current.state.selection).toBeNull();
+
+    act(() => {
+      result.current.map.setHovered(null);
+    });
+
+    expect(result.current.state.hovered).toBeNull();
+  });
 });
 
 describe('useListingLayer', () => {

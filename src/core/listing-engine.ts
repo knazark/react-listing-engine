@@ -183,17 +183,30 @@ export class ListingEngine<TEntity, TFilters> {
     );
   }
 
-  selectPoint(datasetId: string, id: EntityId): void {
+  // `id: EntityId | null` — passing `null` clears the selection (no match is
+  // ever found for `null`, so PointClicked simply never emits in that case;
+  // no separate early-return branch needed).
+  selectPoint(datasetId: string, id: EntityId | null): void {
     this.store.setSelection(id);
     const match = this.state.points[datasetId]?.find(point => point.id === id);
     if (match) {
       this.emitter.emit({
         type: ListingEventType.PointClicked,
         datasetId,
-        id,
+        id: match.id, // narrows to EntityId (non-null) -- `id` itself stays `EntityId | null` for the null-clears-selection case
         entity: match.entity as TEntity,
       });
     }
+  }
+
+  // Sets the hovered marker id, mirroring `selectPoint`'s dataset-scoped
+  // signature for API symmetry (later tasks may key hover state per dataset)
+  // -- but hover is a transient highlight, not a commit, so unlike
+  // `selectPoint` it never emits an event and never inspects the dataset's
+  // loaded points, leaving `datasetId` unused for now (`_`-prefixed per this
+  // repo's convention for intentionally-unused parameters).
+  setHovered(_datasetId: string, id: EntityId | null): void {
+    this.store.setHovered(id);
   }
 
   toggleLayer(id: string): void {

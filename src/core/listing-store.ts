@@ -6,6 +6,13 @@ export interface ListingState<TEntity, TFilters> {
   results: Page<TEntity>;
   bounds: Bounds | null;
   selection: EntityId | null;
+  // Hovered marker id, kept separate from `selection` on purpose: hovering a
+  // map marker/list row is a transient, non-committing interaction (e.g. a
+  // highlight-on-hover affordance), while `selection` reflects an explicit
+  // click via `selectPoint`. Additive, inert-by-default (`null` until
+  // `setHovered` is called) — existing consumers that never call it see no
+  // behavior change.
+  hovered: EntityId | null;
   pagination: { mode: PaginationMode; loading: boolean };
   layers: Record<string, boolean>;
   // Per-dataset map points, populated by ListingEngine#loadPoints. Keyed by
@@ -42,6 +49,7 @@ export class ListingStore<TEntity, TFilters> {
       results: { items: [], nextCursor: null },
       bounds: null,
       selection: null,
+      hovered: null,
       pagination: { mode: init.mode ?? PaginationMode.Paged, loading: false },
       layers: {},
       points: {},
@@ -81,6 +89,10 @@ export class ListingStore<TEntity, TFilters> {
 
   setSelection(id: EntityId | null): void {
     this.setState({ selection: id });
+  }
+
+  setHovered(id: EntityId | null): void {
+    this.setState({ hovered: id });
   }
 
   setLayerVisible(id: string, visible: boolean): void {

@@ -401,6 +401,52 @@ describe('ListingEngine', () => {
     engine.dispose();
   });
 
+  it('selectPoint(datasetId, null) clears the selection and emits no PointClicked', async () => {
+    const point = { id: 1, position: { lat: 1, lng: 1 }, entity: { id: 1 } };
+    const adapter: EntityAdapter<{ id: number }, object> = {
+      list: async () => ({ items: [], nextCursor: null }),
+      getPoints: async () => [point],
+    };
+    const datasets = new DatasetRegistry();
+    datasets.add({ id: 'a', adapter, marker: {} });
+    const engine = new ListingEngine({ datasets, config: { debounceMs: 0 } });
+    await engine.loadPoints({ west: 0, south: 0, east: 1, north: 1 });
+
+    engine.selectPoint('a', 1);
+    expect(engine.state.selection).toBe(1);
+
+    const clicked = vi.fn();
+    engine.on(ListingEventType.PointClicked, clicked);
+    engine.selectPoint('a', null);
+
+    expect(engine.state.selection).toBeNull();
+    expect(clicked).not.toHaveBeenCalled();
+    engine.dispose();
+  });
+
+  it('setHovered writes datasetId\'s hovered id to state.hovered without touching selection or emitting any event', () => {
+    const adapter: EntityAdapter<{ id: number }, object> = {
+      list: async () => ({ items: [], nextCursor: null }),
+      getPoints: async () => [],
+    };
+    const datasets = new DatasetRegistry();
+    datasets.add({ id: 'a', adapter, marker: {} });
+    const engine = new ListingEngine({ datasets, config: { debounceMs: 0 } });
+
+    const handler = vi.fn();
+    engine.on('*', handler);
+
+    engine.setHovered('a', 'x');
+    expect(engine.state.hovered).toBe('x');
+    expect(engine.state.selection).toBeNull();
+    expect(handler).not.toHaveBeenCalled();
+
+    engine.setHovered('a', null);
+    expect(engine.state.hovered).toBeNull();
+    expect(handler).not.toHaveBeenCalled();
+    engine.dispose();
+  });
+
   it('loadPage no-ops when there is no nextCursor', async () => {
     const list = vi.fn(async () => ({ items: [], nextCursor: null }));
     const adapter: EntityAdapter<{ id: number }, object> = { list, getPoints: async () => [] };

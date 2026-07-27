@@ -22,6 +22,7 @@ describe('ListingStore', () => {
       results: { items: [], nextCursor: null },
       bounds: null,
       selection: null,
+      hovered: null,
       pagination: { mode: PaginationMode.Paged, loading: false },
       layers: {},
       points: {},
@@ -94,6 +95,26 @@ describe('ListingStore', () => {
     expect(store.getState().bounds).toEqual({ west: 1, south: 2, east: 3, north: 4 });
     expect(store.getState().selection).toBe(42);
     expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true });
+    expect(cb).toHaveBeenCalledTimes(3);
+  });
+
+  it('setHovered sets/clears the hovered id independently of selection, notifying once per call', () => {
+    const store = new ListingStore<{ id: number }, object>({ filters: {} });
+    const cb = vi.fn();
+    store.subscribe(cb);
+
+    store.setHovered('a');
+    expect(store.getState().hovered).toBe('a');
+    expect(store.getState().selection).toBeNull(); // setHovered never touches selection
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    store.setSelection('a'); // selecting the same id doesn't clear hovered — independent slices
+    expect(store.getState().hovered).toBe('a');
+    expect(store.getState().selection).toBe('a');
+
+    store.setHovered(null);
+    expect(store.getState().hovered).toBeNull();
+    expect(store.getState().selection).toBe('a'); // clearing hovered never touches selection
     expect(cb).toHaveBeenCalledTimes(3);
   });
 
