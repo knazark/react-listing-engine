@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { Bounds, LatLng, MapHandle, RenderedLayer, Unsubscribe } from '~/interfaces';
 
+import { FallbackPopup, useListingComponents } from '../components-provider';
 import { useListing } from '../hooks/use-listing';
 import { useListingState } from '../hooks/use-listing-state';
 
@@ -158,11 +160,21 @@ export interface IListingMapProps {
  * subscription registered in the first place) instead of leaking a live map
  * instance that nothing in the component tree references anymore.
  *
+ * Popup overlay: when a `Popup` slot is injected (via `ListingComponentsProvider`)
+ * AND `state.selection` resolves to a loaded point of the primary dataset, the
+ * injected `Popup` is rendered -- via `createPortal` -- into an on-map overlay
+ * anchored at that point (`provider.mountOverlay(point.position)`; see that
+ * method's doc comment for the sync-container / async-attach split). `onClose`
+ * (and the `Esc` key, while the popup is open) clear the selection through
+ * `engine.selectPoint(primary, null)`. Fully backward compatible: with NO
+ * `Popup` slot provided, nothing is mounted and there is no behavior change
+ * (detected by `Popup !== FallbackPopup` reference identity).
+ *
  * Deliberately out of scope for this task (documented future enhancements):
- * rendering the injected `Marker`/`Popup` React components INTO map markers
- * via portals -- only `iconUrl` + `onMarkerClick` -> `selectPoint` is wired;
- * and rendering the injected `Popup` for `state.selection` as an overlay
- * beside the map.
+ * rendering the injected `Marker` React component INTO map markers via portals
+ * (only `iconUrl` + `onMarkerClick` -> `selectPoint` is wired); and dismissing
+ * the popup on a map-background click (the `MapProvider` interface exposes no
+ * map-click event, so only `Esc`/`onClose` dismissal is wired).
  *
  * `fallback`: when `engine.map` is `undefined` (no `MapProvider` configured),
  * `fallback` renders centered inside the same ref'd container instead of an
@@ -313,6 +325,52 @@ export function ListingMap(props: IListingMapProps) {
     provider?.updateMarkerStates(state.selection, state.hovered);
   }, [provider, ready, state.selection, state.hovered]);
 
+  // --- Popup overlay -----------------------------------------------------
+  // See the class doc comment's "Popup overlay" section. `Popup` always
+  // resolves to SOME component (the inert `FallbackPopup` when no slot was
+  // injected), so an actual injected slot is detected by reference identity.
+  const { Popup } = useListingComponents();
+  const hasPopup = Popup !== FallbackPopup;
+
+  // The selected point of the PRIMARY dataset, or `undefined` when nothing is
+  // selected / the selection isn't among the currently loaded points.
+  const primaryPoints = state.points[engine.primaryDatasetId] ?? [];
+  const selected = state.selection != null ? primaryPoints.find(point => point.id === state.selection) : undefined;
+
+  // Overlay container the injected Popup is portal'd into, set once the effect
+  // below mounts the overlay (and nulled on teardown).
+  const [popupContainer, setPopupContainer] = useState<HTMLElement | null>(null);
+
+  // `selected` is derived from `state.points`, which is deliberately kept OUT of
+  // this effect's deps: points reload on every pan, and we must NOT tear the
+  // open popup down and rebuild it on each. The latest `selected` is read via a
+  // ref so the effect can key only on selection / Popup / provider / ready.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  useEffect(() => {
+    const handle = handleRef.current;
+    if (!provider || !handle || !hasPopup) return;
+    const selectedPoint = selectedRef.current;
+    if (!selectedPoint) return;
+
+    const overlay = provider.mountOverlay(selectedPoint.position);
+    setPopupContainer(overlay.container);
+
+    // Esc dismisses the popup (only registered while it's open -- this effect
+    // only runs when a point is selected and a Popup slot exists).
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') engine.selectPoint(engine.primaryDatasetId, null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      overlay.unmount();
+      setPopupContainer(null);
+    };
+  }, [engine, provider, ready, state.selection, hasPopup]);
+
   return (
     <div
       ref={containerRef}
@@ -323,6 +381,12 @@ export function ListingMap(props: IListingMapProps) {
       }
     >
       {!provider && fallback}
+      {hasPopup && selected && popupContainer
+        ? createPortal(
+            <Popup entity={selected.entity} onClose={() => engine.selectPoint(engine.primaryDatasetId, null)} />,
+            popupContainer,
+          )
+        : null}
     </div>
   );
 }

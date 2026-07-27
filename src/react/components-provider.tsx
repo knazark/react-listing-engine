@@ -85,7 +85,13 @@ const FallbackCard: ComponentType<IListingCardProps> = ({ item }) => <div>{getIt
 
 const FallbackMarker: ComponentType<IListingMarkerProps> = () => <div />;
 
-const FallbackPopup: ComponentType<IListingPopupProps> = () => <div />;
+// Exported (not just internal) so on-map consumers -- specifically `ListingMap`'s
+// popup overlay -- can detect whether a REAL `Popup` slot was injected vs. this
+// inert default by reference identity (`Popup !== FallbackPopup`). The overlay
+// must stay fully inert (mount nothing on selection) when no `Popup` was
+// provided, and `useListingComponents().Popup` always resolves to SOME component
+// (this fallback when unset), so a reference check is the way to tell them apart.
+export const FallbackPopup: ComponentType<IListingPopupProps> = () => <div />;
 
 const FallbackSidebar: ComponentType<IListingSidebarProps> = ({ children }) => <div>{children}</div>;
 

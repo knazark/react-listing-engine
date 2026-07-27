@@ -110,6 +110,25 @@ describe('MapProvider contract (FakeMapProvider)', () => {
     expect(provider.markerStates).toEqual({ selected: 'c', hovered: 'c' });
   });
 
+  it('mountOverlay returns a container handle, records the overlay, and unmount removes it', async () => {
+    const provider = new FakeMapProvider();
+    await provider.mount(document.createElement('div'), { apiKey: 'k' });
+
+    expect(provider.overlays).toEqual([]);
+
+    const overlay = provider.mountOverlay({ lat: 10, lng: 20 });
+
+    expect(overlay.container).toBeInstanceOf(HTMLElement);
+    expect(provider.overlays).toHaveLength(1);
+    expect(provider.overlays[0].position).toEqual({ lat: 10, lng: 20 });
+
+    overlay.setPosition({ lat: 30, lng: 40 });
+    expect(provider.overlays[0].position).toEqual({ lat: 30, lng: 40 });
+
+    overlay.unmount();
+    expect(provider.overlays).toEqual([]);
+  });
+
   it('drives the full mount -> renderLayer -> onBoundsChange -> destroy sequence end to end', async () => {
     const provider = new FakeMapProvider();
     const el = document.createElement('div');

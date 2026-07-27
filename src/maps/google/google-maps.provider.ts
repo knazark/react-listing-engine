@@ -5,6 +5,7 @@ import type {
   LatLng,
   MapHandle,
   MapInitOptions,
+  MapOverlayHandle,
   MapProvider,
   RenderedLayer,
   Unsubscribe,
@@ -251,6 +252,80 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
 
   htmlMarkerCtor = HtmlMarkerOverlay;
   return htmlMarkerCtor;
+}
+
+// How far (px) above the anchor coordinate the popup's bottom edge sits, so it
+// clears the marker centered on that coordinate rather than overlapping it.
+const POPUP_OFFSET_Y_PX = 14;
+
+/**
+ * A lat/lng-anchored `OverlayView` that hosts an arbitrary `container` `<div>`
+ * in the `floatPane` (the pane Google itself uses for InfoWindows -- above
+ * markers and mouse-interactive, so the popup's own controls are clickable).
+ * Backs `googleProvider.mountOverlay`; the caller portals React into `container`.
+ * `updatePosition` re-anchors it (used by the returned handle's `setPosition`).
+ */
+type PopupOverlay = google.maps.OverlayView & { updatePosition(position: LatLng): void };
+interface PopupOverlayCtor {
+  new (container: HTMLElement, position: LatLng): PopupOverlay;
+}
+
+// Same lazy-definition dance as `getHtmlMarkerCtor`: `google.maps.OverlayView`
+// only exists once the `maps` library has loaded, so the subclass is built on
+// first use (always after a `mount`, so the library is present) and cached.
+let popupOverlayCtor: PopupOverlayCtor | undefined;
+
+function getPopupOverlayCtor(): PopupOverlayCtor {
+  if (popupOverlayCtor) return popupOverlayCtor;
+
+  class PopupOverlayView extends google.maps.OverlayView {
+    // Tracks whether we're currently attached (between onAdd and onRemove) so
+    // `updatePosition` knows if it can reposition NOW (projection ready) or
+    // should just stash the new position for the next map-driven `draw()`.
+    private attached = false;
+
+    constructor(
+      private readonly container: HTMLElement,
+      private position: LatLng,
+    ) {
+      super();
+    }
+
+    override onAdd(): void {
+      this.attached = true;
+      // Attach the (already-created) container only now -- `onAdd` fires
+      // asynchronously on the map's next render cycle, never synchronously in
+      // `setMap()`. The container was returned to the caller up front so the
+      // React portal target is stable regardless of this timing.
+      this.getPanes()?.floatPane.appendChild(this.container);
+    }
+
+    override draw(): void {
+      const projection = this.getProjection();
+      if (!projection) return;
+      const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(this.position.lat, this.position.lng));
+      if (!point) return;
+      // Container CSS anchors its bottom-center on the coordinate
+      // (`translate(-50%, -100%)`); lift it a touch so it clears the marker.
+      this.container.style.left = `${point.x}px`;
+      this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
+    }
+
+    override onRemove(): void {
+      this.attached = false;
+      this.container.remove();
+    }
+
+    updatePosition(position: LatLng): void {
+      this.position = position;
+      // Reposition immediately if live; otherwise the next map-driven draw()
+      // (or the first draw() after onAdd) picks up the stashed position.
+      if (this.attached) this.draw();
+    }
+  }
+
+  popupOverlayCtor = PopupOverlayView;
+  return popupOverlayCtor;
 }
 
 /**
@@ -702,6 +777,43 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         el.classList.toggle('rle-marker--selected', id === selectedId);
         el.classList.toggle('rle-marker--hovered', id === hoveredId && id !== selectedId);
       }
+    },
+
+    mountOverlay(position: LatLng): MapOverlayHandle {
+      // Create and style the container UP FRONT (synchronously) so the returned
+      // `container` is a stable React portal target immediately -- the overlay
+      // only *attaches/positions* it asynchronously (see `PopupOverlayView`).
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      // Anchor its bottom-center on the coordinate (see `PopupOverlayView.draw`).
+      container.style.transform = 'translate(-50%, -100%)';
+      // floatPane content is clickable; ensure the popup itself receives pointer events.
+      container.style.pointerEvents = 'auto';
+
+      // No currently-mounted map (never mounted, or its handle was destroyed):
+      // return an inert handle over a stable, detached container so a caller can
+      // still portal into it without crashing -- and WITHOUT touching
+      // `google.maps.OverlayView`, which may not even be loaded in that state.
+      if (!currentRaw) {
+        return {
+          container,
+          setPosition: () => {},
+          unmount: () => container.remove(),
+        };
+      }
+
+      const PopupOverlayView = getPopupOverlayCtor();
+      const overlay = new PopupOverlayView(container, position);
+      overlay.setMap(currentRaw.map);
+
+      return {
+        container,
+        setPosition: (next: LatLng) => overlay.updatePosition(next),
+        unmount: () => {
+          overlay.setMap(null); // triggers onRemove() -> detaches the container
+          container.remove(); // belt-and-suspenders if onRemove never ran (never attached)
+        },
+      };
     },
   };
 }

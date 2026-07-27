@@ -1,6 +1,22 @@
-import type { Bounds, EntityId, MapHandle, MapInitOptions, MapProvider, RenderedLayer, Unsubscribe } from '~/interfaces';
+import type {
+  Bounds,
+  EntityId,
+  LatLng,
+  MapHandle,
+  MapInitOptions,
+  MapOverlayHandle,
+  MapProvider,
+  RenderedLayer,
+  Unsubscribe,
+} from '~/interfaces';
 
 type BoundsListener = (b: Bounds) => void;
+
+/** One live overlay record kept by `FakeMapProvider.mountOverlay` for assertions. */
+interface FakeOverlay {
+  container: HTMLElement;
+  position: LatLng;
+}
 
 /**
  * Headless in-memory `MapProvider` test double. Records everything it is
@@ -17,6 +33,11 @@ export class FakeMapProvider implements MapProvider {
   destroyCount = 0;
   /** Records the most recent `updateMarkerStates` call -- `null` until it is first called. */
   markerStates: { selected: EntityId | null; hovered: EntityId | null } | null = null;
+  /**
+   * Currently-live overlays created via `mountOverlay` (removed on `unmount`),
+   * newest last -- lets a test assert an overlay was mounted/anchored/torn down.
+   */
+  readonly overlays: FakeOverlay[] = [];
 
   private readonly boundsListeners = new Set<BoundsListener>();
 
@@ -66,5 +87,26 @@ export class FakeMapProvider implements MapProvider {
 
   updateMarkerStates(selectedId: EntityId | null, hoveredId: EntityId | null): void {
     this.markerStates = { selected: selectedId, hovered: hoveredId };
+  }
+
+  // Creates a real (detached) container and appends it to `document.body` so
+  // React content portal'd into it is queryable via Testing Library's
+  // `screen`; records it in `overlays` and drops it on `unmount`.
+  mountOverlay(position: LatLng): MapOverlayHandle {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const record: FakeOverlay = { container, position };
+    this.overlays.push(record);
+    return {
+      container,
+      setPosition: (next: LatLng) => {
+        record.position = next;
+      },
+      unmount: () => {
+        container.remove();
+        const index = this.overlays.indexOf(record);
+        if (index !== -1) this.overlays.splice(index, 1);
+      },
+    };
   }
 }

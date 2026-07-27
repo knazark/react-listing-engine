@@ -13,6 +13,18 @@ export interface RenderedLayer {
   onMarkerClick?(id: string | number): void;
 }
 export type Unsubscribe = () => void;
+/**
+ * Handle to an imperatively-mounted, lat/lng-anchored DOM overlay (see
+ * `MapProvider.mountOverlay`). `container` is a stable element the provider
+ * created and owns positioning of -- callers portal their own content (e.g. the
+ * injected `Popup` slot) into it. `setPosition` re-anchors it at a new
+ * coordinate; `unmount` detaches it from the map and the DOM.
+ */
+export interface MapOverlayHandle {
+  readonly container: HTMLElement;
+  setPosition(position: LatLng): void;
+  unmount(): void;
+}
 export interface MapProvider {
   mount(el: HTMLElement, opts: MapInitOptions): Promise<MapHandle> | MapHandle;
   renderLayer(handle: MapHandle, layer: RenderedLayer): Unsubscribe;
@@ -29,4 +41,17 @@ export interface MapProvider {
    * own advanced-marker/`AdvancedMarkerElement` mode) MAY no-op.
    */
   updateMarkerStates(selectedId: EntityId | null, hoveredId: EntityId | null): void;
+  /**
+   * Mounts an absolutely-positioned DOM `container` anchored at `position` on
+   * the map (above any markers) and returns a `MapOverlayHandle` to
+   * reposition/unmount it. The `container` is created and returned
+   * SYNCHRONOUSLY so it is a stable React portal target, even though a real map
+   * SDK attaches it to a map pane and positions it ASYNCHRONOUSLY on its next
+   * render cycle (never synchronously inside the mount call) -- see the Google
+   * provider's implementation. No `MapHandle` parameter: like
+   * `updateMarkerStates`, a provider instance operates on its own
+   * currently-mounted map. Used to render the injected `Popup` slot as an
+   * on-map overlay when a point is selected.
+   */
+  mountOverlay(position: LatLng): MapOverlayHandle;
 }

@@ -18,7 +18,12 @@ export function useListingMap() {
   const state = useListingState();
 
   const loadPoints = useCallback((bounds: Bounds) => engine.loadPoints(bounds), [engine]);
-  const selectPoint = useCallback((datasetId: string, id: EntityId) => engine.selectPoint(datasetId, id), [engine]);
+  // `id: EntityId | null` -- `null` clears the selection (the engine already
+  // accepts it); lets consumers deselect through the hook, not just select.
+  const selectPoint = useCallback(
+    (datasetId: string, id: EntityId | null) => engine.selectPoint(datasetId, id),
+    [engine],
+  );
   const setHovered = useCallback((id: EntityId | null) => engine.setHovered(engine.primaryDatasetId, id), [engine]);
 
   return { bounds: state.bounds, points: state.points, hovered: state.hovered, loadPoints, selectPoint, setHovered };

@@ -200,7 +200,10 @@ class FakeOverlayView {
   }
 
   getPanes() {
-    return { overlayMouseTarget: this.pane };
+    // `overlayMouseTarget` backs HtmlMarkerOverlay markers; `floatPane` backs the
+    // PopupOverlayView (see `mountOverlay`). Same per-instance node -- a given
+    // overlay instance is only ever one kind, so they never collide.
+    return { overlayMouseTarget: this.pane, floatPane: this.pane };
   }
 
   getProjection() {
@@ -542,6 +545,74 @@ describe('googleProvider', () => {
   it('updateMarkerStates before any mount is a no-op (no crash)', () => {
     const provider = googleProvider({ apiKey: 'k' });
     expect(() => provider.updateMarkerStates(1, 2)).not.toThrow();
+  });
+
+  describe('mountOverlay', () => {
+    it('anchors a PopupOverlayView container in the floatPane and positions it via the projection', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+
+      const overlay = provider.mountOverlay({ lat: 3, lng: 4 });
+
+      // Container is returned SYNCHRONOUSLY (stable portal target), styled to
+      // anchor its bottom-center on the coordinate.
+      expect(overlay.container).toBeInstanceOf(HTMLElement);
+      expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+      expect(overlay.container.style.position).toBe('absolute');
+
+      // A PopupOverlayView was created and added to the map; the fake's setMap
+      // fires onAdd()+draw() synchronously.
+      const created = createdOverlays[createdOverlays.length - 1];
+      expect(created.setMap).toHaveBeenCalled();
+      // onAdd() appended the container into the floatPane...
+      expect(created.pane.contains(overlay.container)).toBe(true);
+      // ...and draw() positioned it from fromLatLngToDivPixel ({ x: 5, y: 7 })
+      // lifted by POPUP_OFFSET_Y_PX (14) so it clears the marker: top = 7 - 14.
+      expect(overlay.container.style.left).toBe('5px');
+      expect(overlay.container.style.top).toBe('-7px');
+    });
+
+    it('setPosition re-runs the projection to re-anchor the (attached) container', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+
+      const overlay = provider.mountOverlay({ lat: 1, lng: 1 });
+      overlay.container.style.left = '';
+      overlay.container.style.top = '';
+
+      overlay.setPosition({ lat: 9, lng: 9 });
+
+      expect(overlay.container.style.left).toBe('5px');
+      expect(overlay.container.style.top).toBe('-7px');
+    });
+
+    it('unmount detaches the container via setMap(null) -> onRemove', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+
+      const overlay = provider.mountOverlay({ lat: 1, lng: 1 });
+      const created = createdOverlays[createdOverlays.length - 1];
+      expect(created.pane.contains(overlay.container)).toBe(true);
+
+      overlay.unmount();
+
+      expect(created.setMap).toHaveBeenCalledWith(null);
+      expect(created.pane.contains(overlay.container)).toBe(false);
+    });
+
+    it('before any mount, returns an inert handle over a stable detached container (no crash)', () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const overlaysBefore = createdOverlays.length;
+
+      const overlay = provider.mountOverlay({ lat: 1, lng: 1 });
+
+      // No live map -> no OverlayView is even constructed; the container is a
+      // stable, detached portal target and the handle's methods are inert.
+      expect(overlay.container).toBeInstanceOf(HTMLElement);
+      expect(createdOverlays.length).toBe(overlaysBefore);
+      expect(() => overlay.setPosition({ lat: 2, lng: 2 })).not.toThrow();
+      expect(() => overlay.unmount()).not.toThrow();
+    });
   });
 
   describe('container resize hardening', () => {

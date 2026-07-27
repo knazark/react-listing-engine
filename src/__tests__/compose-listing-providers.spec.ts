@@ -108,6 +108,7 @@ describe('composeListingProviders', () => {
       fitBounds: () => {},
       destroy: () => {},
       updateMarkerStates: () => {},
+      mountOverlay: () => ({ container: document.createElement('div'), setPosition: () => {}, unmount: () => {} }),
     };
     const props = composeListingProviders<TestFilters>(withMap<TestFilters>(map));
     expect(props.map).toBe(map);
