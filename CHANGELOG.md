@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.6.8
+
+### Patch Changes
+
+- Add `mapOptions` to `googleProvider`'s config: a `Partial<google.maps.MapOptions>` merged into every map the provider creates, so consumers can set the zoom envelope (`minZoom`/`maxZoom`), UI chrome (`disableDefaultUI`, `zoomControl`), `clickableIcons`, gesture handling, etc. It is spread first, so the provider's own required keys always win: `mapId` comes from the `mapId` field and `center`/`zoom` from the per-mount init options. (The legacy `styles` array remains ignored by Google whenever a `mapId` is present — style a Map ID via the Cloud Console.)
+
 ## 0.6.1
 
 ### Patch Changes

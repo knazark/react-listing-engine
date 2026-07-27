@@ -41,6 +41,16 @@ export interface GoogleMapsProviderConfig {
    * comes from `apiKey` and cannot be overridden here.
    */
   loaderOptions?: Partial<Omit<APIOptions, 'key'>>;
+  /**
+   * Extra `google.maps.MapOptions` merged into every map this provider creates -- the zoom
+   * envelope (`minZoom`/`maxZoom`), UI chrome (`disableDefaultUI`, `zoomControl`), gesture
+   * handling, `clickableIcons`, etc. Spread FIRST, so the provider's own required keys always
+   * win over it: `mapId` here is ignored (use the `mapId` field), and `center`/`zoom` here are
+   * ignored (they come from the per-mount `MapInitOptions`). NOTE: the legacy `styles` array is
+   * IGNORED by Google whenever a `mapId` is present (a Map ID always is here) -- style a Map ID
+   * via the Cloud Console, not here.
+   */
+  mapOptions?: Partial<google.maps.MapOptions>;
 }
 
 /**
@@ -284,6 +294,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const markerLib = await importLibrary('marker');
       const center = opts.center ?? { lat: 0, lng: 0 };
       const map = new mapsLib.Map(el, {
+        ...config.mapOptions,
         center,
         zoom: opts.zoom ?? 10,
         mapId: config.mapId ?? DEFAULT_MAP_ID,

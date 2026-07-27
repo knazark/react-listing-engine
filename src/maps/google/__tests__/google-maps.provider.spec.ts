@@ -268,6 +268,29 @@ describe('googleProvider', () => {
     expect(mapConstructorCalls[0].opts.mapId).toBe('DEMO_MAP_ID');
   });
 
+  it('mount merges config.mapOptions into the Map, but center/zoom/mapId still win over it', async () => {
+    const provider = googleProvider({
+      apiKey: 'k',
+      mapId: 'real-map-id',
+      // `mapId`/`center`/`zoom` here must be overridden by the required keys below.
+      mapOptions: { minZoom: 2.5, maxZoom: 17, disableDefaultUI: true, mapId: 'ignored', center: { lat: 9, lng: 9 }, zoom: 99 },
+    });
+
+    await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 14 });
+
+    const opts = mapConstructorCalls[0].opts as Record<string, unknown>;
+    // Pass-through options are applied...
+    expect(opts.minZoom).toBe(2.5);
+    expect(opts.maxZoom).toBe(17);
+    expect(opts.disableDefaultUI).toBe(true);
+    // ...but never at the expense of the provider's own required keys: `center`/`zoom` come
+    // from the per-mount MapInitOptions and `mapId` from the config field, so the same keys
+    // in mapOptions are ignored.
+    expect(opts.mapId).toBe('real-map-id');
+    expect(opts.center).toEqual({ lat: 1, lng: 2 });
+    expect(opts.zoom).toBe(14);
+  });
+
   it('renderLayer creates one marker per layer.markers entry', async () => {
     const provider = googleProvider({ apiKey: 'k' });
     const handle = await provider.mount(document.createElement('div'), {});
