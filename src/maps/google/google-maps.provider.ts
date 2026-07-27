@@ -143,6 +143,17 @@ interface GoogleMapRaw {
    */
   layerMarkerIds: Map<string, EntityId[]>;
   boundsListeners: Set<GoogleMapsEventListener>;
+  /**
+   * Live `onMapClick` google listeners, mirroring `boundsListeners` above: `onMapClick` (unlike
+   * every other subscription method) takes no `MapHandle`, so a caller can hold onto its returned
+   * `Unsubscribe` past this map's own `destroy()` -- e.g. `ListingMap`'s popup-overlay effect
+   * unsubscribes in ITS OWN cleanup, which for the "close the whole map" unmount path runs in the
+   * same tick as (but not provably before) the mount effect's `provider.destroy()`. Without this
+   * set, a caller unsubscribing after `destroy()` has already run would find nothing left to force
+   * a `remove()` on, and a still-attached `google.maps.MapsEventListener` would leak. `destroy()`
+   * force-removes every listener still in this set as a backstop, exactly like `boundsListeners`.
+   */
+  clickListeners: Set<GoogleMapsEventListener>;
   /** `undefined` under SSR/environments without `ResizeObserver` -- see `observeContainerResize`. */
   resizeObserver: ResizeObserver | undefined;
 }
@@ -662,6 +673,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         layers: new Map(),
         clusterers: new Map(),
         boundsListeners: new Set(),
+        clickListeners: new Set(),
         resizeObserver,
         markerElements: new Map(),
         layerMarkerIds: new Map(),
@@ -754,12 +766,14 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // `overlayMouseTarget` pane, so clicking a marker does NOT fire this --
       // exactly the "background clicks only" behavior popup dismissal wants.
       const listener = raw.map.addListener('click', () => cb());
+      raw.clickListeners.add(listener);
 
       let disposed = false;
       return () => {
         if (disposed) return;
         disposed = true;
         listener.remove();
+        raw.clickListeners.delete(listener);
       };
     },
 
@@ -775,6 +789,11 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       raw.resizeObserver?.disconnect();
       for (const listener of raw.boundsListeners) listener.remove();
       raw.boundsListeners.clear();
+      // Backstop for a caller (e.g. `ListingMap`'s popup-overlay effect) that unsubscribes an
+      // `onMapClick` listener AFTER this `destroy()` -- see `GoogleMapRaw.clickListeners`'s doc
+      // comment. Force-remove every listener still registered here so none leaks.
+      for (const listener of raw.clickListeners) listener.remove();
+      raw.clickListeners.clear();
       // Snapshot the keys before disposing -- `disposeClusterer` deletes from `raw.clusterers`
       // as it goes, and mutating a Map mid-iteration-over-its-own-keys is easy to get subtly
       // wrong, so iterate a plain array copy instead.
