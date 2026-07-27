@@ -613,6 +613,25 @@ describe('googleProvider', () => {
       expect(() => overlay.setPosition({ lat: 2, lng: 2 })).not.toThrow();
       expect(() => overlay.unmount()).not.toThrow();
     });
+
+    it('returns the container SYNCHRONOUSLY (stable portal target) and only appends it to the floatPane after the deferred async onAdd flushes', async () => {
+      // Real `OverlayView.onAdd()` fires on the map's NEXT render cycle, never
+      // synchronously inside `setMap()` -- the fake defers it to a microtask.
+      deferOverlayOnAdd = true;
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+
+      const overlay = provider.mountOverlay({ lat: 3, lng: 4 });
+      const created = createdOverlays[createdOverlays.length - 1];
+
+      // Container exists immediately (React can portal into it right away)...
+      expect(overlay.container).toBeInstanceOf(HTMLElement);
+      // ...but onAdd hasn't run yet, so it is NOT attached to the pane.
+      expect(created.pane.contains(overlay.container)).toBe(false);
+
+      // Flush the deferred onAdd microtask -- mirrors the map's next render cycle.
+      await vi.waitFor(() => expect(created.pane.contains(overlay.container)).toBe(true));
+    });
   });
 
   describe('container resize hardening', () => {

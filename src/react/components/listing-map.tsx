@@ -164,17 +164,24 @@ export interface IListingMapProps {
  * AND `state.selection` resolves to a loaded point of the primary dataset, the
  * injected `Popup` is rendered -- via `createPortal` -- into an on-map overlay
  * anchored at that point (`provider.mountOverlay(point.position)`; see that
- * method's doc comment for the sync-container / async-attach split). `onClose`
- * (and the `Esc` key, while the popup is open) clear the selection through
- * `engine.selectPoint(primary, null)`. Fully backward compatible: with NO
- * `Popup` slot provided, nothing is mounted and there is no behavior change
- * (detected by `Popup !== FallbackPopup` reference identity).
+ * method's doc comment for the sync-container / async-attach split). The
+ * selected entity + anchor position are CAPTURED into component state
+ * (`capturedPopup`) when the overlay mounts, and the rendered `Popup` reads from
+ * that snapshot rather than from the live, pan-reactive `selected` -- so a pan
+ * that drops the selected point out of `state.points` leaves the open popup
+ * anchored and intact (it pans with the map like a Google InfoWindow) instead
+ * of tearing its content out and leaving an empty overlay behind. The popup is
+ * dismissed -- clearing the capture, unmounting the overlay, and clearing the
+ * selection via `engine.selectPoint(primary, null)` -- by the `Popup`'s own
+ * `onClose`, the `Esc` key, or a click on the map BACKGROUND
+ * (`provider.onMapClick`; marker clicks live in a separate pane and never fire
+ * it). Fully backward compatible: with NO `Popup` slot provided, nothing is
+ * mounted and there is no behavior change (detected by `Popup !== FallbackPopup`
+ * reference identity).
  *
- * Deliberately out of scope for this task (documented future enhancements):
+ * Deliberately out of scope for this task (documented future enhancement):
  * rendering the injected `Marker` React component INTO map markers via portals
- * (only `iconUrl` + `onMarkerClick` -> `selectPoint` is wired); and dismissing
- * the popup on a map-background click (the `MapProvider` interface exposes no
- * map-click event, so only `Esc`/`onClose` dismissal is wired).
+ * (only `iconUrl` + `onMarkerClick` -> `selectPoint` is wired).
  *
  * `fallback`: when `engine.map` is `undefined` (no `MapProvider` configured),
  * `fallback` renders centered inside the same ref'd container instead of an
@@ -333,13 +340,24 @@ export function ListingMap(props: IListingMapProps) {
   const hasPopup = Popup !== FallbackPopup;
 
   // The selected point of the PRIMARY dataset, or `undefined` when nothing is
-  // selected / the selection isn't among the currently loaded points.
+  // selected / the selection isn't among the currently loaded points. Read ONLY
+  // to seed the captured popup below when the selection changes -- never read by
+  // the render (see `capturedPopup`), so a later pan that drops this point out
+  // of `state.points` can't empty out an already-open popup.
   const primaryPoints = state.points[engine.primaryDatasetId] ?? [];
   const selected = state.selection != null ? primaryPoints.find(point => point.id === state.selection) : undefined;
 
-  // Overlay container the injected Popup is portal'd into, set once the effect
-  // below mounts the overlay (and nulled on teardown).
-  const [popupContainer, setPopupContainer] = useState<HTMLElement | null>(null);
+  // The open popup's CAPTURED entity + anchor position + portal container,
+  // snapshotted when the overlay effect mounts (and nulled on teardown). The
+  // rendered Popup reads from THIS, not from the live `selected` above, so it
+  // stays anchored and pans with the map (InfoWindow-style) until explicitly
+  // dismissed -- even once a pan shrinks `state.points` so `selected` no longer
+  // resolves. This is what keeps the overlay lifecycle (keyed on selection) and
+  // the portal content (keyed on this captured snapshot) from drifting apart and
+  // leaving a lingering empty overlay behind.
+  const [capturedPopup, setCapturedPopup] = useState<{ entity: unknown; position: LatLng; container: HTMLElement } | null>(
+    null,
+  );
 
   // `selected` is derived from `state.points`, which is deliberately kept OUT of
   // this effect's deps: points reload on every pan, and we must NOT tear the
@@ -355,19 +373,29 @@ export function ListingMap(props: IListingMapProps) {
     if (!selectedPoint) return;
 
     const overlay = provider.mountOverlay(selectedPoint.position);
-    setPopupContainer(overlay.container);
+    // Capture entity + position NOW, decoupling the rendered Popup from live
+    // `state.points` (see `capturedPopup`'s comment).
+    setCapturedPopup({ entity: selectedPoint.entity, position: selectedPoint.position, container: overlay.container });
+
+    const dismiss = () => engine.selectPoint(engine.primaryDatasetId, null);
 
     // Esc dismisses the popup (only registered while it's open -- this effect
     // only runs when a point is selected and a Popup slot exists).
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') engine.selectPoint(engine.primaryDatasetId, null);
+      if (event.key === 'Escape') dismiss();
     };
     document.addEventListener('keydown', onKeyDown);
 
+    // A click on the map BACKGROUND dismisses it too -- the touch-friendly
+    // counterpart to Esc. Marker clicks live in a separate pane and don't fire
+    // this (see `MapProvider.onMapClick`), so this never fights marker selection.
+    const unsubscribeMapClick = provider.onMapClick(dismiss);
+
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      unsubscribeMapClick();
       overlay.unmount();
-      setPopupContainer(null);
+      setCapturedPopup(null);
     };
   }, [engine, provider, ready, state.selection, hasPopup]);
 
@@ -381,10 +409,10 @@ export function ListingMap(props: IListingMapProps) {
       }
     >
       {!provider && fallback}
-      {hasPopup && selected && popupContainer
+      {hasPopup && capturedPopup
         ? createPortal(
-            <Popup entity={selected.entity} onClose={() => engine.selectPoint(engine.primaryDatasetId, null)} />,
-            popupContainer,
+            <Popup entity={capturedPopup.entity} onClose={() => engine.selectPoint(engine.primaryDatasetId, null)} />,
+            capturedPopup.container,
           )
         : null}
     </div>

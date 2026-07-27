@@ -29,6 +29,16 @@ export interface MapProvider {
   mount(el: HTMLElement, opts: MapInitOptions): Promise<MapHandle> | MapHandle;
   renderLayer(handle: MapHandle, layer: RenderedLayer): Unsubscribe;
   onBoundsChange(handle: MapHandle, cb: (b: Bounds) => void): Unsubscribe;
+  /**
+   * Subscribes to clicks on the map BACKGROUND (not on a marker) and returns an
+   * unsubscribe. Used to dismiss an open on-map `Popup` overlay on a
+   * tap/click-away -- the touch-friendly counterpart to `Esc`. HTML overlay
+   * markers live in the map's `overlayMouseTarget` pane, so a marker click does
+   * NOT surface here -- only genuine background clicks do, which is exactly what
+   * dismissal wants. No `MapHandle` parameter: like `updateMarkerStates` and
+   * `mountOverlay`, a provider instance operates on its own currently-mounted map.
+   */
+  onMapClick(cb: () => void): Unsubscribe;
   fitBounds(handle: MapHandle, b: Bounds): void;
   destroy(handle: MapHandle): void;
   /**

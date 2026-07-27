@@ -105,6 +105,7 @@ describe('composeListingProviders', () => {
       mount: () => ({ raw: null }),
       renderLayer: () => () => {},
       onBoundsChange: () => () => {},
+      onMapClick: () => () => {},
       fitBounds: () => {},
       destroy: () => {},
       updateMarkerStates: () => {},

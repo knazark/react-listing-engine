@@ -192,4 +192,73 @@ describe('ListingMap popup overlay', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(map.overlays.length).toBe(0);
   });
+
+  it('keeps the popup anchored with its content intact when the selected point leaves the loaded set (pan-out)', async () => {
+    const map = new FakeMapProvider();
+    const { Probe, getEngine } = makeProbe();
+
+    renderMap({ map, withPopup: true, Probe });
+
+    await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+    const engine = getEngine();
+
+    // Both points loaded, then select 'a' (lat 10, lng 10).
+    await act(async () => {
+      await engine.loadPoints({ west: 0, south: 0, east: 30, north: 30 });
+    });
+    await waitFor(() => expect(engine.state.points.p?.length).toBe(2));
+
+    act(() => {
+      engine.selectPoint('p', 'a');
+    });
+    await waitFor(() => expect(screen.getByText('Popup: Loft A')).toBeInTheDocument());
+    expect(map.overlays.length).toBe(1);
+
+    // Simulate a pan whose new viewport no longer contains 'a' -- only 'b'
+    // (lat 20, lng 20) survives the bounds filter, so 'a' drops out of
+    // `state.points`. The open popup must NOT tear down or empty out.
+    await act(async () => {
+      await engine.loadPoints({ west: 15, south: 15, east: 30, north: 30 });
+    });
+    await waitFor(() => expect(engine.state.points.p?.length).toBe(1));
+    expect(engine.state.points.p?.[0].id).toBe('b');
+
+    // Exactly ONE overlay, still anchored at 'a', with its captured content
+    // intact -- no empty lingering overlay, selection unchanged.
+    expect(screen.getByText('Popup: Loft A')).toBeInTheDocument();
+    expect(map.overlays.length).toBe(1);
+    expect(map.overlays[0].position).toEqual({ lat: 10, lng: 10 });
+    expect(engine.state.selection).toBe('a');
+  });
+
+  it('dismisses the popup on a map-background click (clears selection, removes overlay)', async () => {
+    const map = new FakeMapProvider();
+    const { Probe, getEngine } = makeProbe();
+
+    renderMap({ map, withPopup: true, Probe });
+
+    await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+    const engine = getEngine();
+
+    await act(async () => {
+      await engine.loadPoints({ west: 0, south: 0, east: 30, north: 30 });
+    });
+    await waitFor(() => expect(engine.state.points.p?.length).toBe(2));
+
+    act(() => {
+      engine.selectPoint('p', 'a');
+    });
+    await waitFor(() => expect(screen.getByText('Popup: Loft A')).toBeInTheDocument());
+    expect(map.overlays.length).toBe(1);
+
+    // A click on the map background (not on a marker -- HTML markers live in a
+    // separate, mouse-target pane) dismisses the open popup.
+    act(() => {
+      map.emitMapClick();
+    });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(engine.state.selection).toBeNull();
+    expect(map.overlays.length).toBe(0);
+  });
 });

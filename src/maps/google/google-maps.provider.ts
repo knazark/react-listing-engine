@@ -742,6 +742,27 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       };
     },
 
+    onMapClick(cb: () => void): Unsubscribe {
+      // No `MapHandle` here (mirrors `mountOverlay`/`updateMarkerStates`): the
+      // listener attaches to the currently-mounted map. No live map -> an inert
+      // unsubscribe, so a caller can subscribe without crashing.
+      const raw = currentRaw;
+      if (!raw) return () => {};
+
+      // Mirrors the `'idle'` listener wiring in `onBoundsChange`. A click on the
+      // map background fires 'click'; HTML overlay markers live in the
+      // `overlayMouseTarget` pane, so clicking a marker does NOT fire this --
+      // exactly the "background clicks only" behavior popup dismissal wants.
+      const listener = raw.map.addListener('click', () => cb());
+
+      let disposed = false;
+      return () => {
+        if (disposed) return;
+        disposed = true;
+        listener.remove();
+      };
+    },
+
     fitBounds(handle: MapHandle, b: Bounds): void {
       // `Bounds` ({ west, south, east, north }) is structurally identical to
       // `google.maps.LatLngBoundsLiteral`, so it is passed straight through -- no need to

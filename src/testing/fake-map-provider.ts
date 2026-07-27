@@ -40,6 +40,7 @@ export class FakeMapProvider implements MapProvider {
   readonly overlays: FakeOverlay[] = [];
 
   private readonly boundsListeners = new Set<BoundsListener>();
+  private readonly mapClickListeners = new Set<() => void>();
 
   mount(el: HTMLElement, opts: MapInitOptions): MapHandle {
     const handle: MapHandle = { raw: { el, opts } };
@@ -75,6 +76,20 @@ export class FakeMapProvider implements MapProvider {
     }
   }
 
+  onMapClick(cb: () => void): Unsubscribe {
+    this.mapClickListeners.add(cb);
+    return () => {
+      this.mapClickListeners.delete(cb);
+    };
+  }
+
+  /** Test-only: simulates a click on the map background by invoking every registered map-click listener. */
+  emitMapClick(): void {
+    for (const cb of this.mapClickListeners) {
+      cb();
+    }
+  }
+
   fitBounds(_handle: MapHandle, b: Bounds): void {
     this.fitBoundsCalls.push(b);
   }
@@ -83,6 +98,7 @@ export class FakeMapProvider implements MapProvider {
     this.destroyed.push(handle);
     this.destroyCount += 1;
     this.boundsListeners.clear();
+    this.mapClickListeners.clear();
   }
 
   updateMarkerStates(selectedId: EntityId | null, hoveredId: EntityId | null): void {
