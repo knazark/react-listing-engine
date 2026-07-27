@@ -99,6 +99,40 @@ describe('ListingMap mapControls overlay', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('fullscreens the OUTER wrapper (which also contains mapControls), not the inner map mount div', async () => {
+    // Regression test: `toggleFullscreen()` must target an element that CONTAINS the
+    // `mapControls` overlay -- the overlay is deliberately a SIBLING of the map mount div (see
+    // `IListingMapProps.mapControls`'s doc comment), so fullscreening the mount div alone would
+    // make the overlay (e.g. a fullscreen/zoom button rendered THROUGH `mapControls`) vanish the
+    // instant fullscreen is entered: the Fullscreen API only shows the target element and its
+    // descendants.
+    const map = new FakeMapProvider();
+
+    const { container } = renderMap({ map, mapControls: <button data-testid="zoom-in">+</button> });
+
+    await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
+
+    const outerWrapper = container.querySelector('.relative.h-full.min-h-0.w-full') as HTMLElement;
+    const innerMountEl = (map.mounts[0].raw as { el: HTMLElement }).el;
+
+    // Sanity check on the fixture itself: the outer wrapper is a distinct ancestor of the inner
+    // map mount div (and also contains the mapControls overlay -- covered by the sibling test
+    // above), so asserting fullscreen targets the OUTER one is a meaningful, non-vacuous check.
+    expect(outerWrapper).not.toBe(innerMountEl);
+    expect(outerWrapper.contains(innerMountEl)).toBe(true);
+    expect(outerWrapper.contains(screen.getByTestId('zoom-in'))).toBe(true);
+
+    const outerRequestFullscreen = vi.fn();
+    const innerRequestFullscreen = vi.fn();
+    outerWrapper.requestFullscreen = outerRequestFullscreen;
+    innerMountEl.requestFullscreen = innerRequestFullscreen;
+
+    map.toggleFullscreen();
+
+    expect(outerRequestFullscreen).toHaveBeenCalledTimes(1);
+    expect(innerRequestFullscreen).not.toHaveBeenCalled();
+  });
+
   it('re-renders with a new mapControls node when the prop changes (not frozen from first mount)', async () => {
     const map = new FakeMapProvider();
     const adapter = new InMemoryEntityAdapter<Property, Filters>(rows, predicate, toLatLng);

@@ -4,7 +4,23 @@ import type { Bounds, EntityId, LatLng } from './entity-adapter.interface';
  * Providers that need an API key take it via their factory (e.g. `googleProvider({ apiKey })`),
  * not per-mount.
  */
-export interface MapInitOptions { apiKey?: string; center?: LatLng; zoom?: number; }
+export interface MapInitOptions {
+  apiKey?: string;
+  center?: LatLng;
+  zoom?: number;
+  /**
+   * Element the Fullscreen API should target on `toggleFullscreen()`, instead of the `el`
+   * passed to `mount`. Additive/optional -- providers resolve `fullscreenTarget ?? el`, so
+   * existing callers that never supply it are unaffected.
+   *
+   * Needed because a consumer overlay rendered as a SIBLING of `el` (e.g. `ListingMap`'s
+   * `mapControls`, deliberately never a child -- a real map SDK owns `el`'s contents) would
+   * otherwise vanish the instant `el` alone is fullscreened: the Fullscreen API only shows the
+   * target element and its descendants, never its siblings. Pass an outer wrapper that contains
+   * BOTH `el` and the sibling overlay to keep the overlay visible in fullscreen.
+   */
+  fullscreenTarget?: HTMLElement;
+}
 export interface MapHandle { readonly raw: unknown; }
 export interface RenderedLayer {
   id: string;
@@ -73,12 +89,14 @@ export interface MapProvider {
   /** Decrements the currently-mounted map's zoom level by 1. See `zoomIn`'s doc comment. */
   zoomOut(): void;
   /**
-   * Toggles the browser Fullscreen API on the map's own container element (the same element
-   * passed to `mount`): enters fullscreen on that container if it (or a descendant) is not
-   * already the document's fullscreen element, else exits fullscreen. No `MapHandle` parameter,
-   * same rationale as `zoomIn`/`zoomOut`. Guarded against environments without the Fullscreen
-   * API (e.g. older Safari, or a test DOM that doesn't implement it) -- never throws, simply
-   * no-ops when the relevant methods aren't present. No-op when no map is currently mounted.
+   * Toggles the browser Fullscreen API on the map's fullscreen target -- `opts.fullscreenTarget`
+   * from `mount`, falling back to the mount `el` itself when omitted (see
+   * `MapInitOptions.fullscreenTarget`'s doc comment for why a caller would supply a different
+   * element): enters fullscreen on that target if it (or a descendant) is not already the
+   * document's fullscreen element, else exits fullscreen. No `MapHandle` parameter, same
+   * rationale as `zoomIn`/`zoomOut`. Guarded against environments without the Fullscreen API
+   * (e.g. older Safari, or a test DOM that doesn't implement it) -- never throws, simply no-ops
+   * when the relevant methods aren't present. No-op when no map is currently mounted.
    */
   toggleFullscreen(): void;
 }

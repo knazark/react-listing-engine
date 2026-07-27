@@ -116,8 +116,16 @@ const DEFAULT_MAP_ID = 'DEMO_MAP_ID';
 /** Internal state stashed behind `MapHandle.raw` -- needed by the synchronous `renderLayer`. */
 interface GoogleMapRaw {
   map: GoogleMap;
-  /** The element passed to `mount()` -- the Fullscreen API target for `toggleFullscreen`. */
+  /** The element passed to `mount()`. */
   containerEl: HTMLElement;
+  /**
+   * The Fullscreen API target for `toggleFullscreen` -- `opts.fullscreenTarget ?? containerEl`,
+   * resolved once in `mount()`. Kept distinct from `containerEl` because a consumer overlay
+   * rendered as a SIBLING of `containerEl` (e.g. `ListingMap`'s `mapControls`) would otherwise
+   * vanish the instant `containerEl` alone is fullscreened -- see
+   * `MapInitOptions.fullscreenTarget`'s doc comment.
+   */
+  fullscreenEl: HTMLElement;
   markerLib: MarkerLibrary;
   /**
    * Which marker implementation this map uses, decided once at `mount` from whether `config.styles`
@@ -671,6 +679,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const raw: GoogleMapRaw = {
         map,
         containerEl: el,
+        fullscreenEl: opts.fullscreenTarget ?? el,
         markerLib,
         markerMode: useOverlayMode ? 'overlay' : 'advanced',
         layers: new Map(),
@@ -872,18 +881,23 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
 
     toggleFullscreen(): void {
       if (!currentRaw) return;
-      const el = currentRaw.containerEl;
+      const el = currentRaw.fullscreenEl;
       // Feature-detected throughout -- older Safari and non-browser/test DOM
       // environments don't implement the Fullscreen API at all, and this must
       // never throw in that case (see this method's doc comment).
       const fullscreenElement = document.fullscreenElement;
-      const isThisElementFullscreen =
-        fullscreenElement != null && (fullscreenElement === el || el.contains(fullscreenElement));
+      // `Node.contains(other)` is true when `other === el` too (a node contains itself), so
+      // there is no need for a separate `fullscreenElement === el` check alongside it.
+      const isThisElementFullscreen = fullscreenElement != null && el.contains(fullscreenElement);
 
       if (isThisElementFullscreen) {
-        if (typeof document.exitFullscreen === 'function') void document.exitFullscreen();
+        // `?.catch` (rather than an unconditional `.catch`) tolerates a `document.exitFullscreen`
+        // stub that doesn't return a promise (e.g. a bare `vi.fn()` in a test) as well as a real
+        // rejection (permissions/no-gesture) -- either way this must never throw or surface an
+        // unhandled rejection.
+        if (typeof document.exitFullscreen === 'function') void document.exitFullscreen()?.catch(() => {});
       } else if (typeof el.requestFullscreen === 'function') {
-        void el.requestFullscreen();
+        void el.requestFullscreen()?.catch(() => {});
       }
     },
   };

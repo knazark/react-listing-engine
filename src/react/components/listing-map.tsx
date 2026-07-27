@@ -99,8 +99,9 @@ export interface IListingMapProps {
  *   `ListingEngine.datasets` in the task report). Each marker's click routes
  *   to `engine.selectPoint(datasetId, markerId)`.
  * - Mount effect (declared SECOND): awaits `provider.mount(container, {
- *   center, zoom })`, stashes the resulting `MapHandle` in a ref, and wires
- *   `provider.onBoundsChange(handle, b => engine.loadPoints(b))`. Cleanup
+ *   center, zoom, fullscreenTarget })`, stashes the resulting `MapHandle` in a ref, and wires
+ *   `provider.onBoundsChange(handle, b => engine.loadPoints(b))`. `fullscreenTarget` is the outer
+ *   wrapper (`wrapperRef`), not `container` itself -- see "`mapControls`" below for why. Cleanup
  *   unsubscribes bounds and calls `provider.destroy(handle)`. Also kicks a
  *   one-time, unbounded `engine.loadPoints(WORLD_BOUNDS)` right after the
  *   handle is ready -- see "Auto-fit" below for why.
@@ -203,10 +204,18 @@ export interface IListingMapProps {
  * `mapControls`: rendered as a plain (non-portaled) React overlay laid over the WHOLE map area --
  * see `IListingMapProps.mapControls`'s own doc comment. Deliberately NOT a child of the ref'd
  * container passed to `provider.mount()`: a real map SDK (e.g. Google Maps) takes ownership of
- * that element's contents, so `mapControls` is instead a sibling inside an outer wrapper `<div>`,
- * absolutely positioned over it via CSS -- never competing with the map SDK for that node's
- * children. `null`/`undefined` renders nothing extra (no wrapper divs at all), so this is a fully
- * backward-compatible addition.
+ * that element's contents, so `mapControls` is instead a sibling inside an outer wrapper `<div>`
+ * (`wrapperRef`), absolutely positioned over it via CSS -- never competing with the map SDK for
+ * that node's children. `null`/`undefined` renders nothing extra (no wrapper divs at all), so
+ * this is a fully backward-compatible addition.
+ *
+ * Because `mapControls` is a SIBLING of the map mount div rather than a descendant, a
+ * fullscreen/zoom button rendered through it needs `toggleFullscreen()` to target an element that
+ * CONTAINS both of them -- the Fullscreen API only shows the target element and its descendants,
+ * so fullscreening the mount div alone would make any such button disappear the instant
+ * fullscreen is entered. `wrapperRef` (the outer `<div>` itself) is passed as `fullscreenTarget`
+ * in the mount effect above for exactly this reason -- see `MapInitOptions.fullscreenTarget`'s
+ * doc comment.
  */
 export function ListingMap(props: IListingMapProps) {
   const { center, zoom, fallback, mapControls } = props;
@@ -214,6 +223,12 @@ export function ListingMap(props: IListingMapProps) {
   const state = useListingState();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The outer wrapper -- contains BOTH `containerRef`'s map mount div and the `mapControls`
+  // overlay (a sibling of it, never a child -- see this component's doc comment). Passed to
+  // `provider.mount` as `fullscreenTarget` so `toggleFullscreen()` fullscreens an element that
+  // still shows `mapControls`; fullscreening `containerRef` alone would hide it (the Fullscreen
+  // API only shows the target element and its descendants, never a sibling).
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<MapHandle | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -264,7 +279,11 @@ export function ListingMap(props: IListingMapProps) {
     let boundsUnsub: Unsubscribe | null = null;
 
     void (async () => {
-      const handle = await provider.mount(container, { center, zoom });
+      const handle = await provider.mount(container, {
+        center,
+        zoom,
+        fullscreenTarget: wrapperRef.current ?? undefined,
+      });
 
       if (cancelled) {
         // Strict-Mode double-invoke (or an unusually fast unmount) already
@@ -419,7 +438,7 @@ export function ListingMap(props: IListingMapProps) {
   }, [engine, provider, ready, state.selection, hasPopup]);
 
   return (
-    <div className="relative h-full min-h-0 w-full">
+    <div ref={wrapperRef} className="relative h-full min-h-0 w-full">
       <div
         ref={containerRef}
         className={

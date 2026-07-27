@@ -42,6 +42,14 @@ export class FakeMapProvider implements MapProvider {
   readonly zoomCalls: Array<'in' | 'out'> = [];
   /** Counts `toggleFullscreen` calls. */
   fullscreenToggles = 0;
+  /**
+   * The Fullscreen API target recorded from the most recent `mount()` call -- mirrors the real
+   * `googleProvider`'s `opts.fullscreenTarget ?? el` resolution (see
+   * `MapInitOptions.fullscreenTarget`'s doc comment), so a test can assert which element a caller
+   * (e.g. `ListingMap`) passed as the fullscreen target -- the OUTER wrapper that also contains
+   * the `mapControls` overlay, not the map mount `el` alone.
+   */
+  fullscreenTarget: HTMLElement | undefined;
 
   private readonly boundsListeners = new Set<BoundsListener>();
   private readonly mapClickListeners = new Set<() => void>();
@@ -49,6 +57,7 @@ export class FakeMapProvider implements MapProvider {
   mount(el: HTMLElement, opts: MapInitOptions): MapHandle {
     const handle: MapHandle = { raw: { el, opts } };
     this.mounts.push(handle);
+    this.fullscreenTarget = opts.fullscreenTarget ?? el;
     return handle;
   }
 
@@ -140,5 +149,13 @@ export class FakeMapProvider implements MapProvider {
 
   toggleFullscreen(): void {
     this.fullscreenToggles += 1;
+    // Mirrors the real `googleProvider`'s guarded, feature-detected call against the resolved
+    // fullscreen target -- never throws when `requestFullscreen` is absent (e.g. this project's
+    // happy-dom test DOM, or a plain `vi.fn()` stub that doesn't return a promise). Unlike the
+    // real provider, this fake never tracks enter/exit state -- it's only used to assert WHICH
+    // element a caller targeted, not to simulate the full toggle lifecycle.
+    if (this.fullscreenTarget && typeof this.fullscreenTarget.requestFullscreen === 'function') {
+      void this.fullscreenTarget.requestFullscreen()?.catch(() => {});
+    }
   }
 }
