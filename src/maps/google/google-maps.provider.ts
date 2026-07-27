@@ -37,17 +37,27 @@ type LayerMarkerSpec = RenderedLayer['markers'][number];
  */
 type HtmlMarker = google.maps.OverlayView;
 /**
- * `HtmlMarker` (the `HtmlMarkerOverlay` instance built by `getHtmlMarkerCtor`) extended with the
- * one extra method `createOverlayMarkers` needs: a way to read back the CONTAINER `<div>` the
- * overlay wraps its `content` in (see that class's `onAdd`), so it can be indexed by marker id for
- * `updateMarkerStates`'s class toggling. Structurally compatible with plain `HtmlMarker` (a
- * `google.maps.OverlayView`) everywhere else in this file that only needs `setMap`/`map`.
+ * Lifecycle hooks `createOverlayMarkers` passes into every `HtmlMarkerOverlay` instance so it can
+ * maintain `raw.markerElements` (the id -> container-`<div>` index `updateMarkerStates` reads)
+ * from INSIDE the overlay's own `onAdd`/`onRemove` -- the only place the container `<div>` is
+ * actually created/torn down. `google.maps.OverlayView.onAdd()` fires asynchronously (on the
+ * next map render cycle), never synchronously inside `setMap()`, so this is the only place that
+ * reliably observes the container the moment it exists.
  */
-interface HtmlMarkerInstance extends HtmlMarker {
-  getContainerElement(): HTMLElement | null;
+interface HtmlMarkerLifecycle {
+  /** Called from `onAdd()` with the freshly created container `<div>`. */
+  onContainerAdd(container: HTMLElement): void;
+  /**
+   * Called from `onRemove()` with the container `<div>` that overlay itself created (and is now
+   * tearing down). Receives the container so the caller can guard against clearing a FRESH entry
+   * a later re-render for the same marker id may already have registered by the time this
+   * (now-stale) overlay's `onRemove` gets around to firing -- both `onAdd`/`onRemove` are
+   * asynchronous, so ordering across an old/new overlay pair for the same id is never guaranteed.
+   */
+  onContainerRemove(container: HTMLElement): void;
 }
 interface HtmlMarkerCtor {
-  new (position: LatLng, content: HTMLElement, onClick?: () => void): HtmlMarkerInstance;
+  new (position: LatLng, content: HTMLElement, onClick: (() => void) | undefined, lifecycle: HtmlMarkerLifecycle): HtmlMarker;
 }
 
 export interface GoogleMapsProviderConfig {
@@ -197,7 +207,8 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
     constructor(
       private readonly position: LatLng,
       private readonly content: HTMLElement,
-      private readonly onClick?: () => void,
+      private readonly onClick: (() => void) | undefined,
+      private readonly lifecycle: HtmlMarkerLifecycle,
     ) {
       super();
     }
@@ -214,6 +225,10 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
       div.appendChild(this.content);
       this.div = div;
       this.getPanes()?.overlayMouseTarget.appendChild(div);
+      // Register the container the moment it actually exists -- `onAdd()` is the only place that
+      // does, and (in the real Maps runtime) it fires asynchronously, never synchronously right
+      // after `setMap()`. See `HtmlMarkerLifecycle`'s doc comment.
+      this.lifecycle.onContainerAdd(div);
     }
 
     override draw(): void {
@@ -227,17 +242,10 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
     }
 
     override onRemove(): void {
+      const div = this.div;
       this.div?.remove();
       this.div = null;
-    }
-
-    /**
-     * The absolutely positioned wrapper `<div>` this overlay renders `content` into (built in
-     * `onAdd`, above) -- `null` before `onAdd()` has run or after `onRemove()` has torn it down.
-     * Exposed so `createOverlayMarkers` can index it by marker id for `updateMarkerStates`.
-     */
-    getContainerElement(): HTMLElement | null {
-      return this.div;
+      if (div) this.lifecycle.onContainerRemove(div);
     }
   }
 
@@ -401,19 +409,27 @@ function createAdvancedMarkers(raw: GoogleMapRaw, layer: RenderedLayer): Advance
 /**
  * Creates one `OverlayView` HTML marker per spec, live on `raw.map` (`styles`/no-`mapId` mode).
  * Also indexes each marker's container `<div>` into `raw.markerElements` by marker id (used later
- * by `updateMarkerStates`) -- skipped for a marker whose `onAdd()` hasn't produced a container yet
- * (`getContainerElement()` returns `null`), which simply leaves that one id unpainted until the
- * next re-render.
+ * by `updateMarkerStates`) -- via the `HtmlMarkerLifecycle` hooks below, populated FROM the
+ * overlay's own `onAdd`/`onRemove`, never by reading the container back synchronously right after
+ * `setMap()` (real `OverlayView.onAdd()` fires asynchronously, on the next map render cycle --  a
+ * synchronous read finds nothing, and the index stays permanently empty).
  */
 function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMarker[] {
   const HtmlMarkerOverlay = getHtmlMarkerCtor();
   return layer.markers.map((marker) => {
     const onMarkerClick = layer.onMarkerClick;
     const onClick = onMarkerClick ? () => onMarkerClick(marker.id) : undefined;
-    const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick);
+    const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick, {
+      onContainerAdd: (container) => raw.markerElements.set(marker.id, container),
+      onContainerRemove: (container) => {
+        // Only clear if this id's index entry is still THIS container -- a re-render for the
+        // same layer.id may already have registered a FRESH container for `marker.id` by the
+        // time this (now-stale) overlay's onRemove gets around to firing (see
+        // `HtmlMarkerLifecycle`'s doc comment).
+        if (raw.markerElements.get(marker.id) === container) raw.markerElements.delete(marker.id);
+      },
+    });
     htmlMarker.setMap(raw.map);
-    const container = htmlMarker.getContainerElement();
-    if (container) raw.markerElements.set(marker.id, container);
     return htmlMarker;
   });
 }
@@ -521,13 +537,34 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
   // The currently-mounted map's raw state, tracked at the FACTORY level (not per-`MapHandle`)
   // because `MapProvider#updateMarkerStates` takes no `MapHandle` parameter -- it mirrors
   // `ListingMap`'s own single `handleRef`, which likewise assumes one live handle per provider
-  // instance at a time. Set on every `mount()` (the most recent mount always wins) and cleared by
-  // `destroy()` when the handle being destroyed is the current one, so a stale/discarded handle
-  // (e.g. a React Strict Mode double-invoke) can never leave a dangling reference here.
+  // instance at a time. Set (see `mountGeneration` below for HOW) and cleared by `destroy()` when
+  // the handle being destroyed is the current one, so a stale/discarded handle (e.g. a React
+  // Strict Mode double-invoke) can never leave a dangling reference here.
   let currentRaw: GoogleMapRaw | undefined;
+  /**
+   * Bumped synchronously at the START of every `mount()` call (before its two `await
+   * importLibrary(...)` calls), and captured into `myGeneration` below. `mount()` only assigns
+   * `currentRaw = raw` once its OWN async work finishes IF its captured generation is still the
+   * latest -- i.e. no NEWER `mount()` call has started meanwhile.
+   *
+   * This is what makes "the most recently STARTED mount always wins `currentRaw`" hold
+   * regardless of COMPLETION order. Without it, two overlapping `mount()` calls (e.g. React
+   * Strict Mode's dev-only mount -> cleanup -> mount double-invoke, where the first call is
+   * cancelled but not yet destroyed since its handle doesn't exist yet) race on whichever one's
+   * async chain (two sequential `importLibrary` awaits, real network loads) happens to finish
+   * LAST: if the cancelled/stale mount's async work finishes after the kept mount's, it would
+   * overwrite `currentRaw` with its own (about-to-be-destroyed) `raw`, and the subsequent
+   * `destroy()` call on that stale handle would then (correctly, by its own logic) clear
+   * `currentRaw` back to `undefined` -- permanently nulling out `updateMarkerStates`' repaint
+   * capability even though the kept mount is still live. The generation guard makes that
+   * ordering irrelevant: only the call that is *still the latest* when it finishes ever touches
+   * `currentRaw`, so a slower-finishing stale mount silently no-ops instead of overwriting it.
+   */
+  let mountGeneration = 0;
 
   return {
     async mount(el: HTMLElement, opts: MapInitOptions): Promise<MapHandle> {
+      const myGeneration = ++mountGeneration;
       ensureOptionsConfigured();
       const mapsLib = await importLibrary('maps');
       const markerLib = await importLibrary('marker');
@@ -554,7 +591,9 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         markerElements: new Map(),
         layerMarkerIds: new Map(),
       };
-      currentRaw = raw;
+      // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
+      // comment for why this can't just be an unconditional assignment.
+      if (myGeneration === mountGeneration) currentRaw = raw;
       return { raw };
     },
 

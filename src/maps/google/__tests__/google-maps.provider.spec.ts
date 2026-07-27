@@ -163,6 +163,13 @@ class FakePinElement {
 // class reference here.
 
 let createdOverlays: FakeOverlayView[] = [];
+// Flips `FakeOverlayView#setMap` from synchronously invoking `onAdd()`/`draw()` (the default,
+// used by every other test in this file) to deferring them to a microtask -- matching the REAL
+// `google.maps.OverlayView`, whose `onAdd()` fires asynchronously on the next map render cycle,
+// never synchronously inside `setMap()`. Used by exactly one regression test below (container
+// index must populate FROM `onAdd`, not from a synchronous read right after `setMap()`); reset in
+// `beforeEach` like `simulateMarkerClustererImportFailure`.
+let deferOverlayOnAdd = false;
 
 class FakeOverlayView {
   // The pane the overlay's DOM is mounted into. Kept per-instance (not `document`) so tests can
@@ -174,8 +181,15 @@ class FakeOverlayView {
     // removed (setMap(null)). The subclass defines these on its prototype, so `this.onAdd` etc.
     // resolve to the subclass overrides.
     if (map) {
-      (this as unknown as { onAdd(): void }).onAdd();
-      (this as unknown as { draw(): void }).draw();
+      const fire = () => {
+        (this as unknown as { onAdd(): void }).onAdd();
+        (this as unknown as { draw(): void }).draw();
+      };
+      if (deferOverlayOnAdd) {
+        queueMicrotask(fire);
+      } else {
+        fire();
+      }
     } else {
       (this as unknown as { onRemove(): void }).onRemove();
     }
@@ -206,7 +220,10 @@ let createdMarkers: FakeAdvancedMarkerElement[] = [];
 let mapConstructorCalls: Array<{ el: HTMLElement; opts: FakeMapOptions }> = [];
 
 const setOptionsMock = vi.fn();
-const importLibraryMock = vi.fn(async (name: string) => {
+// Extracted to a named const (rather than inlined straight into `vi.fn(...)`) so the
+// currentRaw-race regression test below can restore this exact base behavior after overriding a
+// specific call with `mockImplementationOnce` -- see that test's comment.
+async function resolveLibrary(name: string) {
   if (name === 'maps') {
     return {
       Map: class extends FakeMap {
@@ -221,7 +238,8 @@ const importLibraryMock = vi.fn(async (name: string) => {
     return { AdvancedMarkerElement: FakeAdvancedMarkerElement, PinElement: FakePinElement };
   }
   throw new Error(`unexpected library: ${name}`);
-});
+}
+const importLibraryMock = vi.fn(resolveLibrary);
 
 vi.mock('@googlemaps/js-api-loader', () => ({
   setOptions: (...args: unknown[]) => setOptionsMock(...args),
@@ -277,7 +295,11 @@ function makeLayer(overrides: Partial<RenderedLayer> = {}): RenderedLayer {
 describe('googleProvider', () => {
   beforeEach(() => {
     setOptionsMock.mockClear();
-    importLibraryMock.mockClear();
+    // `mockReset()` (not just `mockClear()`) so a queued `mockImplementationOnce` left behind by
+    // an earlier failing/aborted test (see the currentRaw-race regression test below) never
+    // leaks into a later one; re-applies the base implementation right after.
+    importLibraryMock.mockReset();
+    importLibraryMock.mockImplementation(resolveLibrary);
     eventTriggerMock.mockClear();
     fitBoundsCalls = [];
     createdMarkers = [];
@@ -286,6 +308,7 @@ describe('googleProvider', () => {
     setCenterCalls = [];
     createdClusterers = [];
     createdOverlays = [];
+    deferOverlayOnAdd = false;
 
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('requestAnimationFrame', vi.fn());
@@ -916,6 +939,27 @@ describe('googleProvider', () => {
       expect(staleDiv.classList.contains('rle-marker--selected')).toBe(false);
     });
 
+    it('populates the container index from the overlay\'s ASYNC onAdd, not a synchronous read right after setMap() (regression: real OverlayView.onAdd fires on the next render cycle, never synchronously inside setMap -- a synchronous read finds nothing and updateMarkerStates silently never repaints)', async () => {
+      deferOverlayOnAdd = true;
+      const provider = googleProvider({ apiKey: 'k', styles });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { markerElements: Map<string | number, HTMLElement> };
+
+      provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 1, lng: 1 } }] }));
+
+      // `onAdd` hasn't fired yet (deferred to a microtask) -- a synchronous
+      // read-right-after-setMap() implementation would already have missed it here, and (since
+      // nothing else ever populates the index later) would stay empty forever.
+      expect(raw.markerElements.size).toBe(0);
+
+      // Flush the deferred onAdd microtask -- mirrors the real Maps runtime's next render cycle.
+      await vi.waitFor(() => expect(raw.markerElements.size).toBe(1));
+
+      provider.updateMarkerStates('a', null);
+      const div = createdOverlays[0].pane.firstElementChild as HTMLElement;
+      expect(div.classList.contains('rle-marker--selected')).toBe(true);
+    });
+
     it('destroy clears the id->element index entirely', async () => {
       const provider = googleProvider({ apiKey: 'k', styles });
       const handle = await provider.mount(document.createElement('div'), {});
@@ -927,6 +971,52 @@ describe('googleProvider', () => {
 
       expect(raw.markerElements.size).toBe(0);
     });
+
+    it(
+      'destroying a STALE mount handle must never clear currentRaw out from under a later, kept ' +
+        'mount just because the stale one happened to finish constructing its raw state LAST ' +
+        '-- regression for a React Strict Mode double-mount race (mount->cleanup->mount) that could ' +
+        'permanently null out updateMarkerStates\' repaint capability',
+      async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+
+        // Reproduces "call order A, B; completion order B, A" deterministically: A is called
+        // first (mirroring ListingMap's first, Strict-Mode-discarded effect run) but its very
+        // first `importLibrary` call is gated to resolve strictly AFTER B's mount has already
+        // fully completed and become `currentRaw` -- exactly the adversarial ordering the real
+        // async `mount()` (two sequential `importLibrary` awaits) can produce under overlapping
+        // concurrent mounts, without depending on real timing.
+        let releaseStale: (() => void) | undefined;
+        const gate = new Promise<void>((resolve) => {
+          releaseStale = resolve;
+        });
+        importLibraryMock.mockImplementationOnce(async (name: string) => {
+          await gate;
+          return resolveLibrary(name);
+        });
+
+        const mountAPromise = provider.mount(document.createElement('div'), {}); // call order: first (gated -- resolves last)
+        const handleB = await provider.mount(document.createElement('div'), {}); // call order: second (resolves first)
+
+        // The kept mount (B) is live and has a real marker.
+        provider.renderLayer(handleB, makeLayer({ markers: [{ id: 'x', position: { lat: 1, lng: 1 } }] }));
+
+        releaseStale?.();
+        const handleA = await mountAPromise;
+
+        // Mirrors `ListingMap`'s mount effect discovering its own `cancelled` flag is true once
+        // this (call-order-first, but slow-to-resolve) mount finally settles: it discards the
+        // now-orphaned handle immediately.
+        provider.destroy(handleA);
+
+        // The surviving handle's repaint capability must still work -- destroying the STALE
+        // handle must not have nulled out the package-internal `currentRaw` pointer just because
+        // A's raw construction happened to finish after B's.
+        provider.updateMarkerStates('x', null);
+        const div = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        expect(div.classList.contains('rle-marker--selected')).toBe(true);
+      },
+    );
 
     it('skips clustering in overlay mode: no MarkerClusterer, warns once', async () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
