@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.5
+
+### Patch Changes
+
+- Add a `mobileSheetFooter` render-prop to `ListingApp` so consumers can own the mobile filters bottom-sheet footer. It receives `{ draft, apply, clear, resultCount, loading }` (exported as `MobileSheetFooterContext`), letting the consumer render a LIVE preview count for the deferred draft (e.g. via its own count endpoint) instead of the default applied count. When the prop is omitted, the default footer (Clear all + "Show N results") is unchanged.
+
 ## 0.7.4
 
 ### Patch Changes
