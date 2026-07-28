@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.1
+
+### Patch Changes
+
+- Fix on-map marker/popup click handling: call `google.maps.OverlayView.preventMapHitsAndGesturesFrom()` on the marker and popup overlay containers. Previously a real pointer click on an HTML overlay marker also registered as a Google Maps _map click_, which fired the background-click dismissal and immediately deselected the just-clicked marker — so the on-map popup opened and instantly closed. This also stops dragging over a marker or popup from panning the map underneath.
+
 ## 0.7.0
 
 ### Minor Changes
