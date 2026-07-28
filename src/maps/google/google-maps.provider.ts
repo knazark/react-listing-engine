@@ -263,15 +263,23 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
       div.appendChild(this.content);
       this.div = div;
       this.getPanes()?.overlayMouseTarget.appendChild(div);
-      // Stop a real pointer click/drag on this marker from ALSO registering as a click/pan on the
+      // Stop a real pointer click on this marker from ALSO registering as a click on the
       // underlying map. Without this, `onMapClick`'s background-dismiss listener (added for
       // click-outside popup dismissal) fires on the SAME gesture that just selected this marker --
       // the marker is instantly deselected, so its popup opens and closes in the same click. A
       // synthetic `element.click()` never reproduces this in unit tests because it never produces
       // a real Google map hit; only a live pointer click on the real map does. Feature-detected
       // because this is a real (if old/unlikely) Maps JS API version concern, not just test hygiene.
-      if (typeof google.maps.OverlayView.preventMapHitsAndGesturesFrom === 'function') {
-        google.maps.OverlayView.preventMapHitsAndGesturesFrom(div);
+      //
+      // Deliberately `preventMapHitsFrom`, NOT `preventMapHitsAndGesturesFrom`: markers are map
+      // furniture, so map GESTURES must keep working through them -- most visibly the scroll
+      // wheel, which should zoom the map even when the cursor happens to rest on a price pill
+      // (the "AndGestures" variant swallows the wheel and turns every marker into a zoom dead
+      // zone). Click-through is still blocked, which is all the popup-dismiss guard needs. The
+      // POPUP overlay below keeps the "AndGestures" variant: it is a CARD floating over the map,
+      // and swiping/scrolling inside it must never pan or zoom the map underneath.
+      if (typeof google.maps.OverlayView.preventMapHitsFrom === 'function') {
+        google.maps.OverlayView.preventMapHitsFrom(div);
       }
       // Register the container the moment it actually exists -- `onAdd()` is the only place that
       // does, and (in the real Maps runtime) it fires asynchronously, never synchronously right

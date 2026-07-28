@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.10
+
+### Patch Changes
+
+- Overlay markers use `preventMapHitsFrom` instead of `preventMapHitsAndGesturesFrom`: click-through to the map stays blocked (the popup-dismiss guard still works), but map gestures now pass through markers -- most visibly, the scroll wheel zooms the map even when the cursor rests on a marker (the AndGestures variant turned every marker into a zoom dead zone). The popup overlay keeps AndGestures: it's a card floating over the map, and interacting inside it must never pan/zoom the map.
+
 ## 0.7.9
 
 ### Patch Changes

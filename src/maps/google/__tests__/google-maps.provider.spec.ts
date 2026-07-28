@@ -194,6 +194,7 @@ class FakeOverlayView {
   // `preventMapHitsAndGesturesFrom` regression tests below. Cleared (not reset -- tests need the
   // real fn back after the one test that deletes it) in `beforeEach`.
   static preventMapHitsAndGesturesFrom = vi.fn();
+  static preventMapHitsFrom = vi.fn();
 
   // The pane the overlay's DOM is mounted into. Kept per-instance (not `document`) so tests can
   // query an overlay's own content without cross-test DOM bleed.
@@ -350,6 +351,7 @@ describe('googleProvider', () => {
     // `preventMapHitsAndGesturesFrom`-unavailable guard test below) and clear call history from
     // every other test.
     FakeOverlayView.preventMapHitsAndGesturesFrom = vi.fn();
+    FakeOverlayView.preventMapHitsFrom = vi.fn();
 
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('requestAnimationFrame', vi.fn());
@@ -1279,11 +1281,11 @@ describe('googleProvider', () => {
     });
 
     it(
-      'calls google.maps.OverlayView.preventMapHitsAndGesturesFrom on each marker\'s container div in ' +
-        "onAdd (regression: a real pointer click on a marker also registered as a map click, firing " +
-        "onMapClick's background-dismiss listener and instantly deselecting the just-clicked marker -- " +
-        'popup opened and closed in the same gesture. A synthetic element.click() never reproduced this ' +
-        "because it doesn't produce a real Google map hit.)",
+      "calls google.maps.OverlayView.preventMapHitsFrom (NOT the AndGestures variant) on each marker's " +
+        'container div in onAdd -- click-through is blocked (regression: a real pointer click on a marker ' +
+        "also registered as a map click, firing onMapClick's background-dismiss listener and instantly " +
+        'deselecting the just-clicked marker), but map GESTURES pass through so the scroll wheel still ' +
+        'zooms with the cursor on a marker (the AndGestures variant turned markers into zoom dead zones)',
       async () => {
         const provider = googleProvider({ apiKey: 'k', styles });
         const handle = await provider.mount(document.createElement('div'), {});
@@ -1291,7 +1293,8 @@ describe('googleProvider', () => {
         provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
 
         const div = createdOverlays[0].pane.firstElementChild as HTMLElement;
-        expect(FakeOverlayView.preventMapHitsAndGesturesFrom).toHaveBeenCalledWith(div);
+        expect(FakeOverlayView.preventMapHitsFrom).toHaveBeenCalledWith(div);
+        expect(FakeOverlayView.preventMapHitsAndGesturesFrom).not.toHaveBeenCalledWith(div);
       },
     );
 
