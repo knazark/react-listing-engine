@@ -4,7 +4,7 @@ import { useListingComponents } from '../components-provider';
 import { useListing } from '../hooks/use-listing';
 import { useListingFilters } from '../hooks/use-listing-filters';
 
-export interface IListingFiltersProps {
+export interface IListingFiltersProps<TFilters = unknown> {
   /**
    * ClassName for the container wrapping every filter group. Purely a
    * styling hook -- this component stays structure-only, so it never bakes
@@ -22,6 +22,24 @@ export interface IListingFiltersProps {
    * leave off (labels shown) for a stacked form layout like the mobile sheet.
    */
   hideLabels?: boolean;
+  /**
+   * Deferred/draft mode: supply alongside `onDraftChange` to have every
+   * control read its value from `def.fromParams(draft)` instead of the
+   * engine's live applied filters, and route `onChange` through
+   * `onDraftChange` instead of `engine.applyFilters`. Nothing reaches the
+   * engine until the caller applies its own accumulated draft (e.g. the
+   * mobile sheet's "Show N results" button committing it via
+   * `engine.applyFilters(draft)`).
+   *
+   * Both `draft` and `onDraftChange` must be supplied together to enable
+   * deferred mode -- either one alone falls back to the original LIVE
+   * behavior (default, used by the desktop filter bar): each control reads
+   * `engine.filters`/live applied state and applies straight to the engine
+   * on change.
+   */
+  draft?: TFilters;
+  /** Paired with `draft` to enable deferred mode -- see `draft`'s doc. */
+  onDraftChange?: (params: Partial<TFilters>) => void;
 }
 
 /**
@@ -51,11 +69,32 @@ export interface IListingFiltersProps {
  * behavior). Passing a horizontal `className` does NOT change the
  * label-above-control structure within each group -- only how the groups
  * themselves are laid out relative to each other.
+ *
+ * `draft`/`onDraftChange` (both required together) switch every control from
+ * LIVE (read/write straight through `engine.filters`/`applyFilters`) to
+ * DEFERRED (read/write through the caller's own draft state) -- see
+ * `IListingFiltersProps.draft`'s doc. Omitted (the default), this component's
+ * behavior is unchanged from before either prop existed.
  */
-export function ListingFilters({ className, groupClassName, hideLabels }: IListingFiltersProps = {}) {
-  const engine = useListing();
+export function ListingFilters<TFilters = unknown>({
+  className,
+  groupClassName,
+  hideLabels,
+  draft,
+  onDraftChange,
+}: IListingFiltersProps<TFilters> = {}) {
+  const engine = useListing<unknown, TFilters>();
   const { FilterPanel } = useListingComponents();
-  const { filters } = useListingFilters();
+  const { filters } = useListingFilters<TFilters>();
+
+  // Deferred mode requires BOTH props -- a lone `draft` has no way to be
+  // edited (no `onDraftChange` to call), and a lone `onDraftChange` has
+  // nothing to read from -- either half-supplied case falls back to live.
+  const deferred = draft !== undefined && onDraftChange !== undefined;
+  // `filters` (from `useListingFilters`) is `DeepReadonly<TFilters>` -- cast
+  // back to `TFilters` here (same shape at runtime, just not recursively
+  // `readonly`-typed) so both branches of this ternary agree on one type.
+  const activeFilters = deferred ? (draft as TFilters) : (filters as TFilters);
 
   return (
     <FilterPanel>
@@ -72,8 +111,10 @@ export function ListingFilters({ className, groupClassName, hideLabels }: IListi
                 <div className="mb-1.5 text-[13px] font-medium text-foreground">{def.label}</div>
               )}
               <Control
-                value={def.fromParams(filters)}
-                onChange={value => void engine.applyFilters(def.toParams(value))}
+                value={def.fromParams(activeFilters)}
+                onChange={value =>
+                  deferred ? onDraftChange!(def.toParams(value)) : void engine.applyFilters(def.toParams(value))
+                }
               />
             </div>
           );

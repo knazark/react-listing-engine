@@ -255,6 +255,38 @@ describe('ListingFilters', () => {
     await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
   });
 
+  it('in deferred mode (draft + onDraftChange given), a control reads its value from the draft and onChange buffers into onDraftChange instead of applying to the engine', async () => {
+    const props = makeProviderProps({ withFilterReg: true });
+    let capturedEngine: ReturnType<typeof useListing> | null = null;
+    const onDraftChange = vi.fn();
+
+    function Probe() {
+      capturedEngine = useListing();
+      return null;
+    }
+
+    render(
+      <ListingProvider {...props}>
+        <ListingComponentsProvider Card={TestCard}>
+          <ListingFilters draft={{ max: 7 }} onDraftChange={onDraftChange} />
+          <Probe />
+        </ListingComponentsProvider>
+      </ListingProvider>,
+    );
+
+    const input = (await screen.findByLabelText('max price')) as HTMLInputElement;
+    // Reads from the DRAFT (7) -- the engine's own applied filters are still
+    // unset (fromParams would read back `0`), so this proves the control is
+    // NOT sourcing its value from `engine.filters`/live state.
+    expect(input.value).toBe('7');
+
+    const applySpy = vi.spyOn(capturedEngine!, 'applyFilters');
+    fireEvent.change(input, { target: { value: '9' } });
+
+    expect(onDraftChange).toHaveBeenCalledWith({ max: 9 });
+    expect(applySpy).not.toHaveBeenCalled();
+  });
+
   it('renders a placeholder for a named (string) filter control', async () => {
     const adapter = new InMemoryEntityAdapter<Property, Filters>(rows, predicate, toLatLng);
     const filters = new FilterRegistry<Filters>();

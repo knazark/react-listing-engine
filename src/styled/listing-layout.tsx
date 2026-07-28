@@ -118,6 +118,27 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
 }
 
 /**
+ * Shallow key/value comparison used by the mobile sheet's "Show N results"
+ * commit to decide whether applying the draft would actually change
+ * anything -- if not, it closes immediately instead of round-tripping a
+ * no-op refetch through `engine.applyFilters` (see `handleApplyDraft`).
+ * `TFilters` is a plain object of primitive-ish values in every dataset this
+ * layout has been used with, so a one-level comparison is enough -- it is
+ * not a deep-equal.
+ */
+function shallowEqualFilters(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false;
+	const left = a as Record<string, unknown>;
+	const right = b as Record<string, unknown>;
+	const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+	for (const key of keys) {
+		if (left[key] !== right[key]) return false;
+	}
+	return true;
+}
+
+/**
  * Full, responsive, Tailwind-free listing experience -- built from the
  * structure-only compound components (`~/react`) plus the injected
  * `Styled*` slot components, with a rich mobile experience: a bottom
@@ -151,17 +172,27 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
  *   the same `mobileView` state as the CSS toggle. Omitted when there is no
  *   map (nothing to toggle to).
  * - `<BottomSheet title="Filters">`: the SAME `<ListingFilters>` component,
- *   stacked vertically (`className="rle-filter-stack"`) for the sheet's
- *   narrower body, plus a footer with "Clear all" (applies
+ *   stacked vertically (`className="rle-filter-stack"`), but in DEFERRED mode
+ *   (`draft`/`onDraftChange` -- see that component's doc): every control edit
+ *   inside the sheet buffers into local `draft` state instead of applying to
+ *   the engine, so the list/map behind the sheet never move while it's open.
+ *   `draft` is re-synced from the currently applied filters each time the
+ *   sheet transitions closed -> open (a render-phase adjustment, not an
+ *   effect). The footer has "Clear all" (resets the DRAFT via
  *   `engine.filters.clearedParams()` -- see that method's doc for why a reset
- *   round-trips each def's to/fromParams) and "Show N results" (just closes
- *   the sheet -- every filter control already applies live via its own
- *   `onChange`, so there is nothing left to commit). While `pagination.loading`
- *   (`useListingState()`) is true -- a filter control's `onChange` just
- *   triggered a refetch -- the apply button is `disabled` and its label swaps
- *   for a `.rle-spinner`, so the sheet reads as "updating" instead of letting
- *   the user close onto a stale count. `.rle-sheet__apply` pins a `min-width`
- *   so that swap never changes the button's footprint.
+ *   round-trips each def's to/fromParams -- NOT applied until committed) and
+ *   "Show N results", which commits: `engine.applyFilters(draft)`, then
+ *   closes the sheet once the resulting refetch settles (or immediately, with
+ *   no refetch at all, if the draft is unchanged from what's already
+ *   applied -- see `handleApplyDraft`). While a commit's refetch (or any
+ *   OTHER live refetch, e.g. the desktop bar or search box, which still apply
+ *   immediately) is in flight -- `pagination.loading` (`useListingState()`) is
+ *   true -- the apply button is `disabled` and its label swaps for a
+ *   `.rle-spinner`, so the sheet reads as "updating" instead of letting the
+ *   user close onto a stale count. `.rle-sheet__apply` pins a `min-width` so
+ *   that swap never changes the button's footprint. The result count itself
+ *   (`Show N results`) always reflects the currently APPLIED results, not a
+ *   live preview of the draft -- it only changes once a commit lands.
  * - Fetches the first page itself on mount (`engine.applyFilters({})`) by
  *   default -- pass `autoFetch={false}`
  *   to opt out and drive the first fetch yourself.
@@ -191,6 +222,49 @@ export function StyledListingLayout({
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const { atEnd, atStart, ref: barScrollRef } = useScrollEdges<HTMLDivElement>();
 
+	// Deferred mobile-sheet filters: `draft` buffers every control edit made
+	// INSIDE the sheet -- nothing reaches the engine until "Show N results"
+	// commits it (see `ListingFilters`'s `draft`/`onDraftChange` doc). Re-synced
+	// from the currently APPLIED `filters` every time the sheet transitions
+	// closed -> open, via the render-phase "adjusting state" pattern (React's
+	// own recommended alternative to a `useEffect` + `setState` for state that
+	// must be correct on the very first paint of the transition, not one
+	// render late) rather than an effect.
+	const [draft, setDraft] = useState<Record<string, unknown>>(filters as Record<string, unknown>);
+	const [prevSheetOpen, setPrevSheetOpen] = useState(sheetOpen);
+	if (sheetOpen !== prevSheetOpen) {
+		setPrevSheetOpen(sheetOpen);
+		if (sheetOpen) setDraft(filters as Record<string, unknown>);
+	}
+
+	const patchDraft = (partial: Partial<Record<string, unknown>>): void =>
+		setDraft(current => ({ ...current, ...partial }));
+
+	// Tracks a "Show N results" commit in progress so the sheet can stay open
+	// through the resulting refetch (the existing loader stays visible on the
+	// apply button) and close only once it settles -- see the apply button's
+	// onClick below. `sawLoadingRef` records that `pagination.loading` was
+	// actually observed `true` for THIS commit before treating a subsequent
+	// `false` as "settled" -- otherwise a commit made while `debounceMs > 0`
+	// (loading only flips true once the debounce timer fires, not
+	// synchronously) would read the still-`false` value from BEFORE the timer
+	// fires and close immediately, before the refetch ever ran.
+	const [committing, setCommitting] = useState(false);
+	const sawLoadingRef = useRef(false);
+
+	useEffect(() => {
+		if (!committing) return;
+		if (pagination.loading) {
+			sawLoadingRef.current = true;
+			return;
+		}
+		if (sawLoadingRef.current) {
+			sawLoadingRef.current = false;
+			setCommitting(false);
+			setSheetOpen(false);
+		}
+	}, [committing, pagination.loading]);
+
 	// Library-wired search: read the current value straight off the engine's
 	// filters and write edits back through `set` (`useListingFilters`'s
 	// bulk-patch mutator), so the SAME box in the desktop bar and the mobile
@@ -215,9 +289,25 @@ export function StyledListingLayout({
 	}, [engine, autoFetch]);
 
 	const handleClearAll = (): void => {
-		// See `FilterRegistry.clearedParams` for why a reset round-trips each
-		// def's to/fromParams instead of clearing by `def.key`.
-		void set(engine.filters.clearedParams());
+		// Draft-only reset -- mirrors the PREVIOUS live `set(engine.filters.clearedParams())`,
+		// but the result now stays in `draft` until "Show N results" commits it
+		// (see `FilterRegistry.clearedParams` for why a reset round-trips each
+		// def's to/fromParams instead of clearing by `def.key`).
+		patchDraft(engine.filters.clearedParams() as Record<string, unknown>);
+	};
+
+	// "Show N results": commits the buffered `draft` to the engine. If the
+	// draft is identical to what's already applied (no sheet edits were made,
+	// or they round-tripped back to the same values), committing would still
+	// kick off a no-op refetch -- so this closes immediately instead, matching
+	// the sheet's pre-deferred "just close" behavior for that case.
+	const handleApplyDraft = (): void => {
+		if (shallowEqualFilters(draft, filters)) {
+			setSheetOpen(false);
+			return;
+		}
+		setCommitting(true);
+		void engine.applyFilters(draft as Partial<unknown>);
 	};
 
 	// Count of filters currently applied -- shown as a badge on the mobile
@@ -285,7 +375,7 @@ export function StyledListingLayout({
 							type="button"
 							className="rle-btn rle-btn--primary rle-sheet__apply"
 							disabled={pagination.loading}
-							onClick={() => setSheetOpen(false)}
+							onClick={handleApplyDraft}
 						>
 							{pagination.loading ? (
 								<span className="rle-spinner" aria-label="Updating results" />
@@ -296,7 +386,12 @@ export function StyledListingLayout({
 					</>
 				}
 			>
-				<ListingFilters className="rle-filter-stack" groupClassName="rle-filter-group" />
+				<ListingFilters
+					className="rle-filter-stack"
+					groupClassName="rle-filter-group"
+					draft={draft}
+					onDraftChange={patchDraft}
+				/>
 			</BottomSheet>
 		</div>
 	);

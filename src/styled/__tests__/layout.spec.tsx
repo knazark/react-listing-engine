@@ -12,7 +12,7 @@ import {
 	type ListingProviderMod,
 } from '~/core';
 import type { EntityAdapter, FilterControlProps, LatLng } from '~/interfaces';
-import { ListingProvider } from '~/react';
+import { ListingProvider, useListing } from '~/react';
 import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
 import { StyledComponentsProviderWithDefaults, StyledListingLayout, type IStyledListingLayoutProps } from '..';
@@ -106,6 +106,19 @@ interface IRenderLayoutOptions {
 	adapter?: EntityAdapter<ListingRow, Filters>;
 }
 
+/**
+ * Renders as a sibling of `<StyledListingLayout>` (same `<ListingProvider>`,
+ * so the same context) purely to hand the engine instance back out of
+ * `renderLayout` -- `StyledListingLayout` takes no children/render-prop slot
+ * of its own, so a probe sibling is the only way a test gets a direct engine
+ * reference (e.g. to `vi.spyOn(engine, 'applyFilters')`) without reaching
+ * into React internals.
+ */
+function EngineProbe({ onEngine }: { onEngine: (engine: ReturnType<typeof useListing<ListingRow, Filters>>) => void }) {
+	onEngine(useListing<ListingRow, Filters>());
+	return null;
+}
+
 function renderLayout({ filters, layoutProps, adapter }: IRenderLayoutOptions = {}) {
 	const map = new FakeMapProvider();
 
@@ -122,15 +135,22 @@ function renderLayout({ filters, layoutProps, adapter }: IRenderLayoutOptions = 
 
 	const composed = composeListingProviders<Filters>(...mods);
 
+	let engine!: ReturnType<typeof useListing<ListingRow, Filters>>;
+
 	const view = render(
 		<ListingProvider<ListingRow, Filters> {...composed}>
 			<StyledComponentsProviderWithDefaults>
 				<StyledListingLayout {...layoutProps} />
 			</StyledComponentsProviderWithDefaults>
+			<EngineProbe
+				onEngine={e => {
+					engine = e;
+				}}
+			/>
 		</ListingProvider>,
 	);
 
-	return { map, container: view.container };
+	return { map, container: view.container, engine };
 }
 
 describe('StyledListingLayout', () => {
@@ -209,7 +229,7 @@ describe('StyledListingLayout', () => {
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
-	it('"Clear all" resets a filter whose registry key differs from its state field (via toParams)', async () => {
+	it('"Clear all" resets the DRAFT (via toParams) but stays deferred until "Show results" commits it', async () => {
 		renderLayout({
 			filters: reg =>
 				reg.add<string>({
@@ -224,16 +244,23 @@ describe('StyledListingLayout', () => {
 		});
 
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
-		// Apply the filter -> only Sunny Loft remains.
+		// Apply the filter (desktop bar, still LIVE) -> only Sunny Loft remains.
 		fireEvent.change(screen.getAllByLabelText('Query')[0], { target: { value: 'sunny' } });
 		await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
 
 		fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
 		fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
 
+		// "Clear all" only resets the DRAFT -- the applied results (and thus the
+		// count) stay filtered until "Show results" commits it.
+		expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole('button', { name: /Show \d+ results/ }));
+
 		// Fix: cleared via `toParams(fromParams({}))` -> `q` is undefined -> both rows return.
 		await waitFor(() => expect(screen.getByText('Cozy Studio')).toBeInTheDocument());
 		expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 	});
 
 	it('the List|Map toggle flips data-mobile-view on the body region', async () => {
@@ -333,6 +360,88 @@ describe('StyledListingLayout', () => {
 
 			fireEvent.click(screen.getByRole('button', { name: /Show 2 results/ }));
 			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+	});
+
+	describe('mobile filters sheet deferred draft', () => {
+		it('buffers a sheet filter edit into the draft, without applying it to the engine, until "Show N results" is clicked', async () => {
+			const { engine } = renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+
+			const applySpy = vi.spyOn(engine, 'applyFilters');
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+
+			// The draft control itself reflects the edit...
+			expect((within(dialog).getByLabelText('Query') as HTMLInputElement).value).toBe('cozy');
+			// ...but nothing reached the engine -- applied results are untouched.
+			expect(applySpy).not.toHaveBeenCalled();
+			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+			expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
+		});
+
+		it('commits the draft to the engine and closes the sheet once the resulting refetch settles', async () => {
+			const gated = createGatedAdapter();
+			renderLayout({ adapter: gated.adapter });
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+			const applyButton = within(dialog).getByRole('button', { name: /Show \d+ results/ });
+
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+			// Still buffered -- both rows still shown, nothing applied yet.
+			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+
+			gated.lockNextQuery();
+			fireEvent.click(applyButton);
+
+			// The commit kicked off a real refetch -- sheet stays open while it's
+			// in flight, with the existing loader visible on the apply button.
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+			expect(applyButton).toBeDisabled();
+			expect(within(applyButton).getByLabelText('Updating results')).toHaveClass('rle-spinner');
+
+			gated.release();
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+			// The buffered draft actually reached the engine.
+			await waitFor(() => expect(screen.queryByText('Sunny Loft')).not.toBeInTheDocument());
+			expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
+		});
+
+		it('closes immediately (no refetch) when "Show results" is clicked without any draft change', async () => {
+			const { engine } = renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const applySpy = vi.spyOn(engine, 'applyFilters');
+
+			fireEvent.click(screen.getByRole('button', { name: /Show \d+ results/ }));
+
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			expect(applySpy).not.toHaveBeenCalled();
+		});
+
+		it('the desktop ListingFilters keeps applying live even while the mobile sheet has an uncommitted draft', async () => {
+			const { container } = renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+			// Buffer a sheet edit that would hide "Sunny Loft" if it were live.
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+
+			// The desktop bar's OWN Query control is unaffected by the sheet's
+			// draft and still applies straight to the engine.
+			const filterBar = container.querySelector('.rle-filter-bar');
+			fireEvent.change(within(filterBar as HTMLElement).getByLabelText('Query'), { target: { value: 'sunny' } });
+
+			await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
+			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
 		});
 	});
 });
