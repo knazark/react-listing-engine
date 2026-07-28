@@ -3,6 +3,7 @@ import { ListingEngine } from '~/core/listing-engine';
 import { DatasetRegistry } from '~/core/registries/dataset-registry';
 import { ListingEventType, PaginationMode } from '~/enums';
 import type { Bounds, EntityAdapter, LatLng, Page, PageRequest } from '~/interfaces';
+import { FakeMapProvider } from '~/testing';
 
 // Minimal local fake standing in for Task 15's `InMemoryEntityAdapter`. Filters
 // a fixed row array with a predicate and maps rows to map points via a
@@ -576,5 +577,57 @@ describe('ListingEngine', () => {
     await overriddenEngine.applyFilters({});
     expect(overriddenEngine.state.results.items).toEqual([{ id: 200 }]);
     overriddenEngine.dispose();
+  });
+
+  describe('fitBounds', () => {
+    const bounds: Bounds = { west: 2, south: 46, east: 24, north: 52 };
+
+    function makeEngineWithMap(map?: FakeMapProvider) {
+      const adapter: EntityAdapter<{ id: number }, object> = {
+        list: async () => ({ items: [], nextCursor: null }),
+        getPoints: async () => [],
+      };
+      const datasets = new DatasetRegistry();
+      datasets.add({ id: 'a', adapter, marker: {} });
+      return new ListingEngine({ datasets, config: { debounceMs: 0 }, map });
+    }
+
+    it('delegates to MapProvider.fitBounds with the registered handle + bounds', () => {
+      const map = new FakeMapProvider();
+      const fitSpy = vi.spyOn(map, 'fitBounds');
+      const engine = makeEngineWithMap(map);
+      const handle = map.mount(document.createElement('div'), {});
+      engine.setMapHandle(handle);
+
+      engine.fitBounds(bounds);
+
+      expect(fitSpy).toHaveBeenCalledTimes(1);
+      expect(fitSpy).toHaveBeenCalledWith(handle, bounds);
+      engine.dispose();
+    });
+
+    it('is a safe no-op before a handle is registered, and again after setMapHandle(null)', () => {
+      const map = new FakeMapProvider();
+      const engine = makeEngineWithMap(map);
+
+      expect(() => engine.fitBounds(bounds)).not.toThrow();
+      expect(map.fitBoundsCalls).toEqual([]);
+
+      const handle = map.mount(document.createElement('div'), {});
+      engine.setMapHandle(handle);
+      engine.fitBounds(bounds);
+      expect(map.fitBoundsCalls).toEqual([bounds]);
+
+      engine.setMapHandle(null); // the map component unmounted -- its handle is gone
+      engine.fitBounds(bounds);
+      expect(map.fitBoundsCalls).toEqual([bounds]); // unchanged -- no delegation into a destroyed map
+      engine.dispose();
+    });
+
+    it('is a safe no-op when no MapProvider is configured', () => {
+      const engine = makeEngineWithMap(undefined);
+      expect(() => engine.fitBounds(bounds)).not.toThrow();
+      engine.dispose();
+    });
   });
 });

@@ -6,6 +6,7 @@ import { composeListingProviders, ListingEngine, withConfig, withDataset, withMa
 import type { Bounds, LatLng } from '~/interfaces';
 import { ListingEventType } from '~/enums';
 import { ListingProvider } from '~/react';
+import { ListingMap } from '~/react/components';
 import {
   useListing,
   useListingEvent,
@@ -306,7 +307,7 @@ describe('useListingMap', () => {
   });
 });
 
-describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen)', () => {
+describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen / fitBounds)', () => {
   function makeWrapperWithMap(map: FakeMapProvider) {
     return function WrapperWithMap({ children }: { children: ReactNode }) {
       const props = composeListingProviders<Filters>(
@@ -315,6 +316,23 @@ describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen)', () =
         withMap<Filters>(map),
       );
       return <ListingProvider {...props}>{children}</ListingProvider>;
+    };
+  }
+
+  // Like `makeWrapperWithMap`, but ALSO renders a `<ListingMap>` so the mount
+  // effect registers a real `MapHandle` on the engine -- `fitBounds` (unlike
+  // the handle-free zoom/fullscreen actions) needs one. The explicit `center`
+  // opts out of auto-fit (see `IListingMapProps.center`), so the ONLY
+  // `provider.fitBounds` calls observed in these tests are the hook's own.
+  function makeWrapperWithMountedMap(map: FakeMapProvider) {
+    const WrapperWithMap = makeWrapperWithMap(map);
+    return function WrapperWithMountedMap({ children }: { children: ReactNode }) {
+      return (
+        <WrapperWithMap>
+          <ListingMap center={{ lat: 0, lng: 0 }} />
+          {children}
+        </WrapperWithMap>
+      );
     };
   }
 
@@ -349,22 +367,24 @@ describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen)', () =
     expect(map.fullscreenToggles).toBe(2);
   });
 
-  it('zoomIn/zoomOut/toggleFullscreen keep a stable identity across re-renders (memoized on [engine])', () => {
+  it('zoomIn/zoomOut/toggleFullscreen/fitBounds keep a stable identity across re-renders (memoized on [engine])', () => {
     const map = new FakeMapProvider();
     const { result, rerender } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMap(map) });
 
     const firstZoomIn = result.current.zoomIn;
     const firstZoomOut = result.current.zoomOut;
     const firstToggleFullscreen = result.current.toggleFullscreen;
+    const firstFitBounds = result.current.fitBounds;
 
     rerender();
 
     expect(result.current.zoomIn).toBe(firstZoomIn);
     expect(result.current.zoomOut).toBe(firstZoomOut);
     expect(result.current.toggleFullscreen).toBe(firstToggleFullscreen);
+    expect(result.current.fitBounds).toBe(firstFitBounds);
   });
 
-  it('zoomIn()/zoomOut()/toggleFullscreen() are safe no-ops when no MapProvider is configured (engine.map is undefined)', () => {
+  it('zoomIn()/zoomOut()/toggleFullscreen()/fitBounds() are safe no-ops when no MapProvider is configured (engine.map is undefined)', () => {
     const { result } = renderHook(() => useListingMap(), { wrapper: Wrapper });
 
     expect(() => {
@@ -372,8 +392,72 @@ describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen)', () =
         result.current.zoomIn();
         result.current.zoomOut();
         result.current.toggleFullscreen();
+        result.current.fitBounds({ west: 0, south: 0, east: 10, north: 10 });
       });
     }).not.toThrow();
+  });
+
+  it('fitBounds() delegates to provider.fitBounds with the mounted MapHandle + bounds', async () => {
+    const map = new FakeMapProvider();
+    const fitSpy = vi.spyOn(map, 'fitBounds');
+    const { result } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMountedMap(map) });
+
+    // `ListingMap`'s mount effect registers the handle in an async
+    // continuation (`await provider.mount(...)`) -- wait for downstream proof
+    // it completed (the initial world-bounds load rendered a layer) rather
+    // than for `mounts.length` alone, which is pushed synchronously inside
+    // `mount()` before the registration ever runs.
+    await waitFor(() => expect(map.renderedLayers.length).toBeGreaterThan(0));
+
+    const destination: Bounds = { west: 2, south: 46, east: 24, north: 52 };
+    act(() => {
+      result.current.fitBounds(destination);
+    });
+
+    expect(fitSpy).toHaveBeenCalledTimes(1);
+    expect(fitSpy).toHaveBeenCalledWith(map.mounts[0], destination);
+  });
+
+  it('fitBounds() is a safe no-op when a MapProvider is configured but no map is mounted (no ListingMap rendered)', () => {
+    const map = new FakeMapProvider();
+    const { result } = renderHook(() => useListingMap(), { wrapper: makeWrapperWithMap(map) });
+
+    expect(() => {
+      act(() => {
+        result.current.fitBounds({ west: 0, south: 0, east: 10, north: 10 });
+      });
+    }).not.toThrow();
+
+    expect(map.fitBoundsCalls).toEqual([]);
+  });
+
+  it('the bounds-changed event following a public fitBounds() still flows through the normal pipeline (state.bounds + point reload)', async () => {
+    const map = new FakeMapProvider();
+    const { result } = renderHook(
+      () => ({ map: useListingMap(), state: useListingState<Property, Filters>() }),
+      { wrapper: makeWrapperWithMountedMap(map) },
+    );
+
+    await waitFor(() => expect(map.renderedLayers.length).toBeGreaterThan(0));
+
+    const destination: Bounds = { west: 15, south: 15, east: 35, north: 35 };
+    act(() => {
+      result.current.map.fitBounds(destination);
+    });
+    expect(map.fitBoundsCalls).toEqual([destination]);
+
+    // The fake provider doesn't move a real viewport, so simulate what a real
+    // map SDK fires once `fitBounds` settles: a bounds-changed event. The
+    // auto-fit guard in `ListingMap` only CLASSIFIES the event's origin
+    // (consumer fitBounds counts as a user move) -- it must never swallow it,
+    // so the normal `loadPoints` pipeline (state.bounds + per-layer point
+    // reload, i.e. a consumer's bounds->filters refetch) still runs.
+    await act(async () => {
+      map.emitBounds(destination);
+    });
+
+    expect(result.current.state.bounds).toEqual(destination);
+    await waitFor(() => expect(result.current.state.points['p']?.map(p => p.id)).toEqual(['b', 'c']));
   });
 });
 

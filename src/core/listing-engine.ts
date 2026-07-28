@@ -1,4 +1,4 @@
-import type { Bounds, EntityId, IListingConfigOptions, MapProvider, Page } from '~/interfaces';
+import type { Bounds, EntityId, IListingConfigOptions, MapHandle, MapProvider, Page } from '~/interfaces';
 import { ListingEventType, PaginationMode } from '~/enums';
 
 import type { ListingEvent } from './events/listing-events';
@@ -76,6 +76,15 @@ export class ListingEngine<TEntity, TFilters> {
   // discipline but tracks bounds-driven point loads independently of
   // filter-driven list loads, since the two can race each other.
   private pointsToken = 0;
+
+  // The currently-mounted map's handle, registered by the map component
+  // (`ListingMap`'s mount effect) via `setMapHandle` and cleared on unmount.
+  // Lets handle-taking `MapProvider` methods (today: `fitBounds`) be exposed
+  // through the engine to consumers (e.g. `useListingMap().fitBounds`) that
+  // have no access to the component-local handle ref — the same role the
+  // provider's own internal current-map tracking plays for its handle-free
+  // methods (`zoomIn`/`zoomOut`/`toggleFullscreen`).
+  private mapHandle: MapHandle | null = null;
 
   constructor(options: ListingEngineOptions<TFilters>) {
     this.datasets = options.datasets;
@@ -183,6 +192,32 @@ export class ListingEngine<TEntity, TFilters> {
     );
   }
 
+  // Registers (or, with `null`, clears) the currently-mounted map's handle —
+  // called ONLY by the map component's mount effect / cleanup (`ListingMap`),
+  // never by consumers. See the `mapHandle` field comment.
+  setMapHandle(handle: MapHandle | null): void {
+    this.mapHandle = handle;
+  }
+
+  /**
+   * Flies the currently-mounted map to `bounds` via
+   * `MapProvider.fitBounds(handle, bounds)`. Safe no-op when no `MapProvider`
+   * is configured OR no map is currently mounted (no registered handle) —
+   * the same tolerance as the provider's own `zoomIn`/`zoomOut`.
+   *
+   * Deliberately does NOT write `state.bounds` or emit `BoundsChanged`
+   * itself: the map SDK fires its own bounds-changed event once the view
+   * settles, which flows through the map component's normal
+   * `onBoundsChange` → `loadPoints(actualBounds)` path — the single source
+   * of truth for the ACTUAL resulting viewport (a real SDK pads/clamps the
+   * requested box to the container's aspect ratio, so echoing the requested
+   * `bounds` here would briefly publish a viewport the map never shows).
+   */
+  fitBounds(bounds: Bounds): void {
+    if (!this.map || !this.mapHandle) return;
+    this.map.fitBounds(this.mapHandle, bounds);
+  }
+
   // `id: EntityId | null` — passing `null` clears the selection (no match is
   // ever found for `null`, so PointClicked simply never emits in that case;
   // no separate early-return branch needed).
@@ -227,6 +262,7 @@ export class ListingEngine<TEntity, TFilters> {
   dispose(): void {
     this.clearDebounce();
     this.emitter.dispose();
+    this.mapHandle = null;
   }
 
   private async runQuery(token: number): Promise<void> {

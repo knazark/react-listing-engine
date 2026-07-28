@@ -295,6 +295,23 @@ export function ListingMap(props: IListingMapProps) {
       }
 
       handleRef.current = handle;
+      // Register the mounted handle on the engine so engine-level map actions
+      // that need one (`engine.fitBounds`, surfaced as
+      // `useListingMap().fitBounds`) can reach it from anywhere under the
+      // provider -- consumers have no access to this component-local ref.
+      // Cleared in this effect's cleanup below, alongside `handleRef`.
+      //
+      // Guard interaction, on purpose: a consumer-invoked `engine.fitBounds`
+      // does NOT set `autoFitInProgressRef`, so the bounds-changed event the
+      // map SDK fires for it is treated exactly like a user pan --
+      // `userMovedRef` is set (suppressing any not-yet-fired auto-fit, which
+      // must never yank the view away from a destination the consumer
+      // explicitly flew to) and, crucially, `engine.loadPoints(bounds)` below
+      // still runs unconditionally, so the normal bounds-changed flow
+      // (store.setBounds + BoundsChanged + per-layer point reload, and any
+      // consumer bounds->filters sync built on it) fires for the new area.
+      // The guard never swallows the event -- it only classifies its origin.
+      engine.setMapHandle(handle);
       boundsUnsub = provider.onBoundsChange(handle, bounds => {
         // Tell "we caused this" (our own fitBounds() call, below) apart from
         // a real user pan -- see the class doc comment's "Auto-fit" section
@@ -324,6 +341,10 @@ export function ListingMap(props: IListingMapProps) {
       if (handleRef.current) {
         provider.destroy(handleRef.current);
         handleRef.current = null;
+        // Deregister so `engine.fitBounds` goes back to being a safe no-op --
+        // the engine outlives this component (it belongs to the provider), so
+        // a stale handle left behind would delegate into a destroyed map.
+        engine.setMapHandle(null);
       }
       setReady(false);
     };

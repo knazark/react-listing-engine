@@ -136,7 +136,7 @@ Every visual value is a `--rle-*` CSS variable declared on `:root`, so you rethe
 - `useListingState()` — the full store snapshot, subscribed via `useSyncExternalStore`.
 - `useListingResults()` — just the paginated results slice.
 - `useListingFilters()` — current filters plus `set(patch)` / `setField(key, value)`.
-- `useListingMap()` — bounds + per-dataset points, plus `loadPoints(bounds)` / `selectPoint(datasetId, id)`.
+- `useListingMap()` — bounds + per-dataset points, plus `loadPoints(bounds)` / `selectPoint(datasetId, id)` and map actions: `zoomIn()` / `zoomOut()` / `toggleFullscreen()` / `fitBounds(bounds)` (flies the mounted map to a bounding box; safe no-op without a mounted map — the resulting bounds-changed event then reloads points for the new area like any user pan).
 - `useListingLayer(id)` — one dataset's visibility, points, and a `toggle()`.
 - `useListingEvent(type | '*', handler)` — subscribe to engine events for the component's lifetime.
 

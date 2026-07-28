@@ -33,6 +33,17 @@ export function useListingMap() {
   const zoomIn = useCallback(() => engine.map?.zoomIn(), [engine]);
   const zoomOut = useCallback(() => engine.map?.zoomOut(), [engine]);
   const toggleFullscreen = useCallback(() => engine.map?.toggleFullscreen(), [engine]);
+  // Unlike the three actions above (whose provider methods are handle-free),
+  // `MapProvider.fitBounds` takes the mounted `MapHandle` -- which lives on
+  // the engine (registered by `ListingMap`'s mount effect via
+  // `engine.setMapHandle`), so this delegates through `engine.fitBounds`
+  // rather than `engine.map` directly. Same tolerance as the others: a safe
+  // no-op when no `MapProvider` is configured OR no map is mounted yet. The
+  // map SDK's resulting bounds-changed event then flows through the normal
+  // pipeline (`loadPoints` -> `state.bounds`/`BoundsChanged`/point reload),
+  // exactly like a user pan -- see `engine.fitBounds`'s doc comment and the
+  // guard-interaction note in `ListingMap`'s mount effect.
+  const fitBounds = useCallback((bounds: Bounds) => engine.fitBounds(bounds), [engine]);
 
   return {
     bounds: state.bounds,
@@ -44,5 +55,6 @@ export function useListingMap() {
     zoomIn,
     zoomOut,
     toggleFullscreen,
+    fitBounds,
   };
 }
