@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.2
+
+### Patch Changes
+
+- Keep the on-map popup within the map viewport: shift it horizontally so it no longer overflows off-screen when its marker is near the left/right edge, and flip it below the marker when it would overflow the top edge. Previously a popup for an edge marker was clipped off-canvas.
+
 ## 0.7.1
 
 ### Patch Changes
