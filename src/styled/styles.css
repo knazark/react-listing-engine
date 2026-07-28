@@ -686,6 +686,15 @@
 	gap: var(--rle-space);
 }
 
+/* Consumer slot appended after the filters row (`filterBarEnd`) -- same rhythm
+   as the row itself, never shrinks into the scroll. */
+.rle-filter-bar__end {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: var(--rle-space);
+}
+
 /* In the (scrolling) desktop row the groups keep their natural width; in the
    mobile stack they lay out vertically, where this is a no-op. */
 .rle-filters-row > * {

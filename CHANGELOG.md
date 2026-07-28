@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.7
+
+### Patch Changes
+
+- Add a `filterBarEnd` slot to `ListingApp`/`StyledListingLayout`: extra content rendered at the end of the desktop filter bar, after the `<ListingFilters>` row (e.g. an "advanced filters" modal trigger). Scrolls with the bar; desktop-only by construction since the whole bar is CSS-hidden below the mobile breakpoint.
+
 ## 0.7.6
 
 ### Patch Changes

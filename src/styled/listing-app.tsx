@@ -98,6 +98,8 @@ export interface ListingAppProps<TFilters> {
 	/** The mobile header action (e.g. "Save"/"Add") -- forwarded verbatim to `StyledListingLayout`/`MobileHeader`. */
 	mobileAction?: IBottomNavAction;
 	search?: IStyledListingLayoutProps['search'];
+	/** Forwarded verbatim to `StyledListingLayout`'s `filterBarEnd` -- extra content at the end of the desktop filter bar (see that prop's doc comment). */
+	filterBarEnd?: IStyledListingLayoutProps['filterBarEnd'];
 	toolbarEnd?: IStyledListingLayoutProps['toolbarEnd'];
 	/**
 	 * Rendered as an absolutely-positioned overlay floating over the map (e.g. zoom/fullscreen
@@ -241,6 +243,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		onFiltersChange,
 		mobileAction,
 		search,
+		filterBarEnd,
 		toolbarEnd,
 		mapControls,
 		mobileSheetFooter,
@@ -277,6 +280,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 				<StyledListingLayout<TFilters>
 					className={className}
 					search={search}
+					filterBarEnd={filterBarEnd}
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
 					autoFetch={autoFetch}
