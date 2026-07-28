@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.3
+
+### Patch Changes
+
+- Freeze the on-map popup's viewport clamp after it opens. Previously the clamp re-ran on every map render frame, so panning kept the popup pinned to the viewport edge instead of letting it move with its marker. Now it clamps once on open and then translates naturally with the map (panning away carries it off-screen with its marker); it only re-clamps when re-anchored to a different marker.
+
 ## 0.7.2
 
 ### Patch Changes
