@@ -1,5 +1,14 @@
 # react-listing-engine
 
+## 0.7.4
+
+### Patch Changes
+
+- Mobile filters bottom-sheet improvements:
+
+  - The sheet's "Show N results" apply button now shows a loading spinner (and is disabled) while a filter refetch is in flight.
+  - The sheet now **defers** filter application: changing a control buffers into a draft instead of applying live, and only the "Show results" button commits the draft to the engine (the list + map update then, and the sheet closes once the refetch settles). `ListingFilters` gains optional `draft` / `onDraftChange` props to drive this deferred mode; the desktop filter bar is unchanged (still applies live).
+
 ## 0.7.3
 
 ### Patch Changes
