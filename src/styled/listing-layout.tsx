@@ -48,8 +48,8 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	 * it would then render twice. Omitted entirely when not passed.
 	 */
 	search?: { filterKey: string; placeholder?: string };
-	/** Extra content rendered at the END of the desktop filter bar, after the `<ListingFilters>` row (e.g. an "advanced filters" modal trigger). Scrolls with the bar. Desktop-only by construction -- the whole filter bar is CSS-hidden below the mobile breakpoint. */
-	filterBarEnd?: ReactNode;
+	/** Extra content rendered in the desktop filter bar between the search box and the `<ListingFilters>` row (e.g. an "advanced filters" modal trigger). Scrolls with the bar. Desktop-only by construction -- the whole filter bar is CSS-hidden below the mobile breakpoint. */
+	filterBarStart?: ReactNode;
 	/** Extra content rendered in `.rle-list-header` (above the list), to the right of `ListingResultHeader` (e.g. a sort control + save-search). */
 	toolbarEnd?: ReactNode;
 	/** Optional mobile-header action button (e.g. "Save"), forwarded verbatim to `<MobileHeader action={...} />`. Omit to render just the search + Filters button there. */
@@ -237,7 +237,7 @@ function shallowEqualFilters(a: unknown, b: unknown): boolean {
  */
 export function StyledListingLayout<TFilters = unknown>({
 	search,
-	filterBarEnd,
+	filterBarStart,
 	toolbarEnd,
 	mobileAction,
 	autoFetch = true,
@@ -366,9 +366,9 @@ export function StyledListingLayout<TFilters = unknown>({
 						</div>
 					)}
 
-					<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
+					{filterBarStart && <div className="rle-filter-bar__slot">{filterBarStart}</div>}
 
-					{filterBarEnd && <div className="rle-filter-bar__end">{filterBarEnd}</div>}
+					<ListingFilters className="rle-filters-row" groupClassName="rle-filter-group" hideLabels />
 				</div>
 
 				{/* Fade only on a side with more content off-screen (see `useScrollEdges`). */}

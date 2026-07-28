@@ -686,9 +686,9 @@
 	gap: var(--rle-space);
 }
 
-/* Consumer slot appended after the filters row (`filterBarEnd`) -- same rhythm
-   as the row itself, never shrinks into the scroll. */
-.rle-filter-bar__end {
+/* Consumer slot between the search box and the filters row (`filterBarStart`)
+   -- same rhythm as the row itself, never shrinks into the scroll. */
+.rle-filter-bar__slot {
 	display: flex;
 	flex-shrink: 0;
 	align-items: center;

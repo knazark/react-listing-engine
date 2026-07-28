@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.8
+
+### Patch Changes
+
+- Reposition and rename the just-added filter-bar slot: `filterBarEnd` -> `filterBarStart`, rendered BETWEEN the search box and the quick-filters row (search, [slot] | filters...). The end position read as an afterthought; an advanced-filters trigger belongs next to the search box.
+
 ## 0.7.7
 
 ### Patch Changes
