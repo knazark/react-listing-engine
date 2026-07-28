@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.6
+
+### Patch Changes
+
+- Expose `fitBounds(bounds)` on `useListingMap()` so consumers can fly the map to a bounding box programmatically (e.g. a search-autocomplete "select a destination" flow). The resulting bounds-changed event flows through the normal pipeline (bounds store + point reload + consumer bounds-sync), and a consumer-initiated fly counts as a user move — the one-time initial auto-fit never yanks the view away afterwards. Safe no-op when no map is mounted.
+
 ## 0.7.5
 
 ### Patch Changes
