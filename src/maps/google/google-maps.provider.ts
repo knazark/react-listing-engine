@@ -263,6 +263,16 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
       div.appendChild(this.content);
       this.div = div;
       this.getPanes()?.overlayMouseTarget.appendChild(div);
+      // Stop a real pointer click/drag on this marker from ALSO registering as a click/pan on the
+      // underlying map. Without this, `onMapClick`'s background-dismiss listener (added for
+      // click-outside popup dismissal) fires on the SAME gesture that just selected this marker --
+      // the marker is instantly deselected, so its popup opens and closes in the same click. A
+      // synthetic `element.click()` never reproduces this in unit tests because it never produces
+      // a real Google map hit; only a live pointer click on the real map does. Feature-detected
+      // because this is a real (if old/unlikely) Maps JS API version concern, not just test hygiene.
+      if (typeof google.maps.OverlayView.preventMapHitsAndGesturesFrom === 'function') {
+        google.maps.OverlayView.preventMapHitsAndGesturesFrom(div);
+      }
       // Register the container the moment it actually exists -- `onAdd()` is the only place that
       // does, and (in the real Maps runtime) it fires asynchronously, never synchronously right
       // after `setMap()`. See `HtmlMarkerLifecycle`'s doc comment.
@@ -335,6 +345,12 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
       // `setMap()`. The container was returned to the caller up front so the
       // React portal target is stable regardless of this timing.
       this.getPanes()?.floatPane.appendChild(this.container);
+      // Same reasoning as `HtmlMarkerOverlay.onAdd` above: without this, a click INSIDE the popup
+      // (the carousel arrows, the close button, ...) also registers as a map click, firing
+      // `onMapClick`'s background-dismiss listener and closing the popup mid-interaction.
+      if (typeof google.maps.OverlayView.preventMapHitsAndGesturesFrom === 'function') {
+        google.maps.OverlayView.preventMapHitsAndGesturesFrom(this.container);
+      }
     }
 
     override draw(): void {

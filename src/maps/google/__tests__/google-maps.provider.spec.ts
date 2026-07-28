@@ -180,6 +180,12 @@ let createdOverlays: FakeOverlayView[] = [];
 let deferOverlayOnAdd = false;
 
 class FakeOverlayView {
+  // Static (mirrors the real `google.maps.OverlayView.preventMapHitsAndGesturesFrom`, which is a
+  // static method on the OverlayView class/namespace, not an instance method) -- see the
+  // `preventMapHitsAndGesturesFrom` regression tests below. Cleared (not reset -- tests need the
+  // real fn back after the one test that deletes it) in `beforeEach`.
+  static preventMapHitsAndGesturesFrom = vi.fn();
+
   // The pane the overlay's DOM is mounted into. Kept per-instance (not `document`) so tests can
   // query an overlay's own content without cross-test DOM bleed.
   readonly pane = document.createElement('div');
@@ -320,6 +326,10 @@ describe('googleProvider', () => {
     createdClusterers = [];
     createdOverlays = [];
     deferOverlayOnAdd = false;
+    // Restore the real fn in case the previous test deleted it (the
+    // `preventMapHitsAndGesturesFrom`-unavailable guard test below) and clear call history from
+    // every other test.
+    FakeOverlayView.preventMapHitsAndGesturesFrom = vi.fn();
 
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.stubGlobal('requestAnimationFrame', vi.fn());
@@ -716,6 +726,37 @@ describe('googleProvider', () => {
       expect(overlay.container.style.top).toBe('-7px');
     });
 
+    it(
+      'calls google.maps.OverlayView.preventMapHitsAndGesturesFrom on the popup container in onAdd ' +
+        '(regression: without it, a click INSIDE the popup -- e.g. the carousel arrows, the close button ' +
+        "-- also registers as a map click, firing onMapClick's background-dismiss listener and closing " +
+        'the popup mid-interaction)',
+      async () => {
+        const provider = googleProvider({ apiKey: 'k' });
+        await provider.mount(document.createElement('div'), {});
+
+        const overlay = provider.mountOverlay({ lat: 3, lng: 4 });
+
+        expect(FakeOverlayView.preventMapHitsAndGesturesFrom).toHaveBeenCalledWith(overlay.container);
+      },
+    );
+
+    it('does not throw when google.maps.OverlayView.preventMapHitsAndGesturesFrom is unavailable (older Maps JS API version/environment)', async () => {
+      // Simulate an environment where this static method doesn't exist at all -- the fix must
+      // feature-detect it (`typeof ... === 'function'`) rather than call it unconditionally.
+      // @ts-expect-error -- test-only: simulating an older Maps JS API missing this static method
+      delete FakeOverlayView.preventMapHitsAndGesturesFrom;
+
+      try {
+        const provider = googleProvider({ apiKey: 'k' });
+        await provider.mount(document.createElement('div'), {});
+
+        expect(() => provider.mountOverlay({ lat: 3, lng: 4 })).not.toThrow();
+      } finally {
+        FakeOverlayView.preventMapHitsAndGesturesFrom = vi.fn();
+      }
+    });
+
     it('setPosition re-runs the projection to re-anchor the (attached) container', async () => {
       const provider = googleProvider({ apiKey: 'k' });
       await provider.mount(document.createElement('div'), {});
@@ -1047,6 +1088,23 @@ describe('googleProvider', () => {
         expect(overlay.setMap).toHaveBeenCalledWith(raw.map);
       }
     });
+
+    it(
+      'calls google.maps.OverlayView.preventMapHitsAndGesturesFrom on each marker\'s container div in ' +
+        "onAdd (regression: a real pointer click on a marker also registered as a map click, firing " +
+        "onMapClick's background-dismiss listener and instantly deselecting the just-clicked marker -- " +
+        'popup opened and closed in the same gesture. A synthetic element.click() never reproduced this ' +
+        "because it doesn't produce a real Google map hit.)",
+      async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: { lat: 1, lng: 1 } }] }));
+
+        const div = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        expect(FakeOverlayView.preventMapHitsAndGesturesFrom).toHaveBeenCalledWith(div);
+      },
+    );
 
     it('overlay markers render iconUrl content as an <img> and fire onMarkerClick when clicked', async () => {
       const provider = googleProvider({ apiKey: 'k', styles });
