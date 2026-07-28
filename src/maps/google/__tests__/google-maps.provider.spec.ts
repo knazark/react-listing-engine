@@ -74,6 +74,19 @@ class FakeMap {
     this.zoom = zoom;
   }
 
+  // Method-form accessor, like the real `google.maps.Map#getCenter` -- the
+  // animated fitBounds fly reads its starting camera through it.
+  getCenter(): { lat(): number; lng(): number } | undefined {
+    const center = this.center as { lat: number; lng: number } | undefined;
+    return center ? { lat: () => center.lat, lng: () => center.lng } : undefined;
+  }
+
+  readonly setOptionsCalls: unknown[] = [];
+
+  setOptions(options: unknown): void {
+    this.setOptionsCalls.push(options);
+  }
+
   trigger(event: string): void {
     for (const handler of this.listeners[event] ?? []) handler();
   }
@@ -556,99 +569,124 @@ describe('googleProvider', () => {
   });
 
   describe('fitBounds animate (fly-to)', () => {
-    // Gives the fake map a current viewport in the LatLngBounds shape
-    // `boundsFromGoogle` reads (getSouthWest/getNorthEast accessors).
-    function setView(map: FakeMap, view: Bounds): void {
-      map.bounds = {
-        getSouthWest: () => ({ lat: () => view.south, lng: () => view.west }),
-        getNorthEast: () => ({ lat: () => view.north, lng: () => view.east }),
-      };
+    // The fly path drives the camera itself over `requestAnimationFrame`
+    // ticks timed by `performance.now()` -- both are stubbed here into a
+    // manually-pumped queue + clock so each test steps the flight
+    // deterministically.
+    let rafQueue: Map<number, FrameRequestCallback>;
+    let rafId: number;
+    let now: number;
+
+    function pumpFrame(advanceMs: number): void {
+      now += advanceMs;
+      const callbacks = [...rafQueue.values()];
+      rafQueue.clear();
+      for (const cb of callbacks) cb(now);
     }
 
-    it('stages a far destination as overview (union) then, on idle, the target', async () => {
+    // A mounted provider whose fake map has a camera (center/zoom getters)
+    // and a real-sized container -- everything the flight computation needs.
+    async function mountFlyable() {
       const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const raw = handle.raw as { map: FakeMap };
-      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 }); // ~San Francisco
-      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 }; // ~Chicago
+      const el = document.createElement('div');
+      Object.defineProperty(el, 'clientWidth', { value: 800 });
+      Object.defineProperty(el, 'clientHeight', { value: 600 });
+      const handle = await provider.mount(el, {
+        center: { lat: 37.77, lng: -122.42 }, // ~San Francisco
+        zoom: 12,
+      });
+      // Drop mount's own scheduled rAF (the container-resize initial probe)
+      // so the queue holds ONLY flight frames.
+      rafQueue.clear();
+      return { provider, handle, map: (handle.raw as { map: FakeMap }).map };
+    }
 
-      provider.fitBounds(handle, target, { animate: true });
-
-      // Leg 1 only: the union of the current view and the target.
-      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }]);
-
-      // Camera settles -> leg 2 fits the target itself.
-      raw.map.trigger('idle');
-      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }, target]);
-
-      // The one-shot listener is spent: later idles (user pans) do not re-fit.
-      raw.map.trigger('idle');
-      expect(fitBoundsCalls).toHaveLength(2);
+    beforeEach(() => {
+      rafQueue = new Map();
+      rafId = 0;
+      now = 1000;
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        rafId += 1;
+        rafQueue.set(rafId, cb);
+        return rafId;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+        rafQueue.delete(id);
+      });
+      vi.spyOn(performance, 'now').mockImplementation(() => now);
     });
 
-    it('fits the target directly when the current view is unknown', async () => {
-      const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+    const CHICAGO: Bounds = { west: -88.12, south: 41.47, east: -87.34, north: 42.2 };
 
-      provider.fitBounds(handle, target, { animate: true });
+    it('drives the camera per frame -- fractional zoom on, a mid-flight zoom-out dip, exact target camera at the end', async () => {
+      const { provider, handle, map } = await mountFlyable();
 
-      expect(fitBoundsCalls).toEqual([target]);
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+
+      expect(map.setOptionsCalls).toContainEqual({ isFractionalZoomEnabled: true });
+      expect(rafQueue.size).toBe(1); // flight scheduled, no teleport
+      expect(fitBoundsCalls).toEqual([]);
+
+      const zooms: number[] = [];
+      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+        pumpFrame(100);
+        zooms.push(map.zoom as number);
+      }
+
+      // The flight completed (queue drained) and dipped BELOW both endpoint
+      // zooms mid-way -- the zoom-out -> glide -> zoom-in arc.
+      const finalZoom = zooms[zooms.length - 1];
+      expect(Math.min(...zooms)).toBeLessThan(Math.min(12, finalZoom) - 1);
+      // Ends exactly on the camera that fits Chicago in the 800x600 container.
+      const center = map.center as { lat: number; lng: number };
+      expect(center.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
+      expect(center.lat).toBeGreaterThan(CHICAGO.south);
+      expect(center.lat).toBeLessThan(CHICAGO.north);
+      // Fitting is by the constraining axis: never zoomed past what fits.
+      expect(finalZoom).toBeGreaterThan(7);
+      expect(finalZoom).toBeLessThan(11);
+      expect(fitBoundsCalls).toEqual([]); // fully driven -- never delegates to map.fitBounds
     });
 
-    it('fits the target directly when the current view already contains it', async () => {
+    it('falls back to a direct fitBounds when the container has no size', async () => {
       const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const raw = handle.raw as { map: FakeMap };
-      setView(raw.map, { west: -125, south: 30, east: -80, north: 45 });
-      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+      const handle = await provider.mount(document.createElement('div'), {
+        center: { lat: 37.77, lng: -122.42 },
+        zoom: 12,
+      });
+      rafQueue.clear(); // drop mount's resize-probe rAF (as in mountFlyable)
 
-      provider.fitBounds(handle, target, { animate: true });
+      provider.fitBounds(handle, CHICAGO, { animate: true });
 
-      expect(fitBoundsCalls).toEqual([target]);
-      raw.map.trigger('idle');
-      expect(fitBoundsCalls).toHaveLength(1);
+      expect(fitBoundsCalls).toEqual([CHICAGO]);
+      expect(rafQueue.size).toBe(0);
     });
 
-    it('fits the target directly when the union would span >= 180 degrees of longitude', async () => {
-      const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const raw = handle.raw as { map: FakeMap };
-      setView(raw.map, { west: -170, south: 30, east: -160, north: 45 });
-      const target: Bounds = { west: 150, south: 30, east: 160, north: 45 };
-
-      provider.fitBounds(handle, target, { animate: true });
-
-      expect(fitBoundsCalls).toEqual([target]);
-    });
-
-    it('a newer fitBounds call cancels the pending zoom-in leg of an in-flight fly', async () => {
-      const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const raw = handle.raw as { map: FakeMap };
-      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 });
-      const stale: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+    it('a newer fitBounds call cancels the in-flight camera animation', async () => {
+      const { provider, handle, map } = await mountFlyable();
       const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
 
-      provider.fitBounds(handle, stale, { animate: true }); // leg 1 (union with stale)
-      provider.fitBounds(handle, fresh); // supersedes before idle
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      pumpFrame(100); // flight under way
+      const zoomMidFlight = map.zoom;
 
-      raw.map.trigger('idle');
-      // The stale zoom-in leg never lands -- only the overview and the fresh fit.
-      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }, fresh]);
+      provider.fitBounds(handle, fresh); // supersedes
+
+      expect(rafQueue.size).toBe(0); // stale flight cancelled
+      expect(fitBoundsCalls).toEqual([fresh]);
+      pumpFrame(100);
+      expect(map.zoom).toBe(zoomMidFlight); // stale flight never drives the camera again
     });
 
-    it('destroy cancels the pending zoom-in leg', async () => {
-      const provider = googleProvider({ apiKey: 'k' });
-      const handle = await provider.mount(document.createElement('div'), {});
-      const raw = handle.raw as { map: FakeMap };
-      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 });
+    it('destroy cancels the in-flight camera animation', async () => {
+      const { provider, handle } = await mountFlyable();
 
-      provider.fitBounds(handle, { west: -88, south: 41.5, east: -87.5, north: 42.2 }, { animate: true });
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      expect(rafQueue.size).toBe(1);
+
       provider.destroy(handle);
 
-      raw.map.trigger('idle');
-      expect(fitBoundsCalls).toHaveLength(1); // the overview leg only
+      expect(rafQueue.size).toBe(0);
     });
   });
 

@@ -184,13 +184,13 @@ interface GoogleMapRaw {
   /** `undefined` under SSR/environments without `ResizeObserver` -- see `observeContainerResize`. */
   resizeObserver: ResizeObserver | undefined;
   /**
-   * The pending zoom-in leg of an animated `fitBounds` fly (a one-shot `idle`
-   * listener) -- `null` when no fly is in flight. Tracked so a NEWER
+   * The rAF id of the camera animation driving an in-flight animated
+   * `fitBounds` fly -- `null` when no fly is in flight. Tracked so a NEWER
    * `fitBounds` call (or `destroy`) can cancel it: without cancellation the
-   * stale leg would land after the newer request and yank the camera back to
-   * an old destination.
+   * stale flight would keep driving the camera after the newer request and
+   * drag it back toward an old destination.
    */
-  flightListener: GoogleMapsEventListener | null;
+  flightFrame: number | null;
 }
 
 function toRaw(handle: MapHandle): GoogleMapRaw {
@@ -761,6 +761,66 @@ function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
   return { west: southWest.lng(), south: southWest.lat(), east: northEast.lng(), north: northEast.lat() };
 }
 
+// --- Animated fitBounds ("fly-to") camera math --------------------------
+//
+// Google only animates its own `fitBounds`/`panTo` for SMALL camera deltas --
+// a far destination teleports (on a raster map, with a blank-tile flash). The
+// animated path therefore drives the camera itself: project everything into
+// zoom-0 Mercator "world" coordinates (the 256x256 world tile), interpolate
+// center and zoom per animation frame with `setCenter`/`setZoom` (fractional
+// zoom enabled -- works on raster and vector maps alike), and give the zoom a
+// distance-scaled mid-flight DIP so long hops read as zoom out -> glide ->
+// zoom in rather than a linear slide.
+
+const WORLD_SIZE = 256;
+/** Flight duration envelope (ms): short hops fly fast, cross-country hops get longer. */
+const FLY_MIN_MS = 500;
+const FLY_MAX_MS = 1300;
+/** Max extra zoom-out (levels) at the midpoint of the longest flights. */
+const FLY_MAX_DIP = 4;
+
+interface WorldPoint {
+  x: number;
+  y: number;
+}
+
+function projectMercator(lat: number, lng: number): WorldPoint {
+  const siny = Math.min(Math.max(Math.sin((lat * Math.PI) / 180), -0.9999), 0.9999);
+  return {
+    x: WORLD_SIZE * (0.5 + lng / 360),
+    y: WORLD_SIZE * (0.5 - Math.log((1 + siny) / (1 - siny)) / (4 * Math.PI)),
+  };
+}
+
+function unprojectMercator(point: WorldPoint): LatLng {
+  const n = Math.PI - (2 * Math.PI * point.y) / WORLD_SIZE;
+  return {
+    lat: (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))),
+    lng: (point.x / WORLD_SIZE - 0.5) * 360,
+  };
+}
+
+/**
+ * The camera (center + fractional zoom) that fits `b` in a `width`x`height`
+ * container -- the animated path's equivalent of `map.fitBounds(b)`'s end
+ * state. `null` for degenerate inputs (zero-area bounds or container).
+ */
+function cameraForBounds(b: Bounds, width: number, height: number): { center: LatLng; zoom: number } | null {
+  const northEast = projectMercator(b.north, b.east);
+  const southWest = projectMercator(b.south, b.west);
+  const dx = Math.abs(northEast.x - southWest.x);
+  const dy = Math.abs(northEast.y - southWest.y);
+  if (dx === 0 || dy === 0 || width === 0 || height === 0) return null;
+  return {
+    center: unprojectMercator({ x: (northEast.x + southWest.x) / 2, y: (northEast.y + southWest.y) / 2 }),
+    zoom: Math.min(Math.log2(width / dx), Math.log2(height / dy)),
+  };
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 /**
  * Google Maps needs a real, non-zero-size container to fetch tiles. A map created while its
  * container is still mid-layout (async mount, a CSS transition, a flex/grid pass not yet
@@ -902,7 +962,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         layerMarkerIds: new Map(),
         selectedMarkerId: null,
         hoveredMarkerId: null,
-        flightListener: null,
+        flightFrame: null,
       };
       // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
       // comment for why this can't just be an unconditional assignment.
@@ -1008,62 +1068,66 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // `google.maps.LatLngBoundsLiteral`, so it is passed straight through -- no need to
       // construct a `LatLngBounds` instance (which would pull in the 'core' library).
       const raw = toRaw(handle);
-      // Any new fit request supersedes an in-flight fly -- cancel its pending
-      // zoom-in leg so a stale destination can't land after this one.
-      raw.flightListener?.remove();
-      raw.flightListener = null;
+      // Any new fit request supersedes an in-flight fly -- cancel its camera
+      // animation so a stale flight can't keep dragging the camera afterward.
+      if (raw.flightFrame != null) {
+        cancelAnimationFrame(raw.flightFrame);
+        raw.flightFrame = null;
+      }
 
       if (!options?.animate) {
         raw.map.fitBounds(b);
         return;
       }
 
-      // Fly-to: Google only animates `fitBounds` when the camera delta is
-      // small -- a far destination teleports. Staging the move as two legs
-      // keeps each leg animatable: first fit the UNION of the current view
-      // and the target (the zoom-out "overview" showing both areas), then,
-      // once the camera settles (`idle`), fit the target itself (the
-      // zoom-in). Falls back to a direct fit when there is no staging to do:
-      // no current view yet, the current view already contains the target
-      // (plain fitBounds zoom-in animates fine), or the union would span
-      // >= 180 degrees of longitude (a near-world envelope -- fitBounds on
-      // one is unstable around the antimeridian and the direct fit loses
-      // nothing visually at that scale).
-      const currentBounds = raw.map.getBounds();
-      if (!currentBounds) {
-        raw.map.fitBounds(b);
-        return;
-      }
-      const view = boundsFromGoogle(currentBounds);
-      const containsTarget =
-        view.north >= b.north && view.south <= b.south && view.west <= b.west && view.east >= b.east;
-      const union: Bounds = {
-        west: Math.min(view.west, b.west),
-        south: Math.min(view.south, b.south),
-        east: Math.max(view.east, b.east),
-        north: Math.max(view.north, b.north),
-      };
-      if (containsTarget || union.east - union.west >= 180) {
+      // Fly-to (see the camera-math block above `projectMercator`). Falls back
+      // to the direct fit whenever the flight can't be computed: no current
+      // camera yet, or a zero-size/degenerate container or bounds.
+      const currentZoom = raw.map.getZoom();
+      const currentCenter = raw.map.getCenter();
+      const target = cameraForBounds(b, raw.containerEl.clientWidth, raw.containerEl.clientHeight);
+      if (currentZoom == null || !currentCenter || !target) {
         raw.map.fitBounds(b);
         return;
       }
 
-      // Listener attached BEFORE the overview fit so a (spec-permitted)
-      // synchronous `idle` could never slip between the fit and the attach.
-      const listener = raw.map.addListener('idle', () => {
-        listener.remove();
-        if (raw.flightListener === listener) raw.flightListener = null;
-        raw.map.fitBounds(b);
-      });
-      raw.flightListener = listener;
-      raw.map.fitBounds(union);
+      // Fractional zoom keeps the per-frame `setZoom` continuous (defaults
+      // off on raster maps, where integer snapping would turn the flight into
+      // a stutter). Idempotent, and deliberately left ON afterwards.
+      raw.map.setOptions({ isFractionalZoomEnabled: true });
+
+      const from = { ...projectMercator(currentCenter.lat(), currentCenter.lng()), zoom: currentZoom };
+      const to = { ...projectMercator(target.center.lat, target.center.lng), zoom: target.zoom };
+      // Pan distance in SCREEN pixels at the coarser of the two zooms sizes
+      // both the mid-flight zoom-out dip and the duration: hops within a
+      // viewport fly flat and fast, cross-country hops arc high and long.
+      const screenDistance =
+        Math.hypot(to.x - from.x, to.y - from.y) * 2 ** Math.min(from.zoom, to.zoom);
+      const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
+      const dip =
+        screenDistance > viewport ? Math.min(FLY_MAX_DIP, Math.log2(screenDistance / viewport) + 1) : 0;
+      const duration = Math.min(FLY_MAX_MS, FLY_MIN_MS + dip * 200);
+      const start = performance.now();
+
+      const step = (): void => {
+        const t = Math.min(1, (performance.now() - start) / duration);
+        const eased = easeInOutCubic(t);
+        raw.map.setZoom(from.zoom + (to.zoom - from.zoom) * eased - dip * Math.sin(Math.PI * eased));
+        raw.map.setCenter(
+          unprojectMercator({ x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased }),
+        );
+        raw.flightFrame = t < 1 ? requestAnimationFrame(step) : null;
+      };
+      raw.flightFrame = requestAnimationFrame(step);
     },
 
     destroy(handle: MapHandle): void {
       const raw = toRaw(handle);
       raw.resizeObserver?.disconnect();
-      raw.flightListener?.remove();
-      raw.flightListener = null;
+      if (raw.flightFrame != null) {
+        cancelAnimationFrame(raw.flightFrame);
+        raw.flightFrame = null;
+      }
       for (const listener of raw.boundsListeners) listener.remove();
       raw.boundsListeners.clear();
       // Backstop for a caller (e.g. `ListingMap`'s popup-overlay effect) that unsubscribes an
