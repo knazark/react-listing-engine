@@ -773,13 +773,15 @@ function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
 // zoom in rather than a linear slide.
 
 const WORLD_SIZE = 256;
-/** Flight duration envelope (ms): short hops fly fast; cross-country hops get
- *  long enough (~2.4s) for raster tiles to stream in during the glide -- a
- *  faster long-hop flight outruns tile loading and shows gray mid-flight. */
-const FLY_MIN_MS = 500;
-const FLY_MAX_MS = 2400;
+/** Flight duration envelope (ms), matched against the reference search UX:
+ *  in-view moves settle in ~0.45s, and even a cross-country hop stays under
+ *  ~1.5s -- a quick zoom-out, a beat at the overview (any un-fetched tiles
+ *  gray out only for that beat, which the reference map exhibits too), and a
+ *  zoom-in. A slower, cinematic glide reads as lag, not travel. */
+const FLY_MIN_MS = 450;
+const FLY_MAX_MS = 1500;
 /** Extra duration (ms) per level of mid-flight zoom-out dip. */
-const FLY_MS_PER_DIP = 475;
+const FLY_MS_PER_DIP = 260;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
