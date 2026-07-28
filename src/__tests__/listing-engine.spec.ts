@@ -682,7 +682,7 @@ describe('ListingEngine', () => {
       engine.fitBounds(bounds);
 
       expect(fitSpy).toHaveBeenCalledTimes(1);
-      expect(fitSpy).toHaveBeenCalledWith(handle, bounds);
+      expect(fitSpy).toHaveBeenCalledWith(handle, bounds, undefined);
       engine.dispose();
     });
 

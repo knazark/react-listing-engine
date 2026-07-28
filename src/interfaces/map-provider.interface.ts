@@ -30,6 +30,17 @@ export interface RenderedLayer {
 }
 export type Unsubscribe = () => void;
 /**
+ * Options for `MapProvider.fitBounds`. `animate: true` requests a "fly-to":
+ * instead of snapping to the target, the provider stages the camera move so
+ * the map SDK animates each leg (the Google provider zooms out to an
+ * overview of the current view + target, then zooms into the target once the
+ * camera settles). Providers MAY treat it as a hint -- omitted/false keeps
+ * the direct, instant fit.
+ */
+export interface FitBoundsOptions {
+  animate?: boolean;
+}
+/**
  * Handle to an imperatively-mounted, lat/lng-anchored DOM overlay (see
  * `MapProvider.mountOverlay`). `container` is a stable element the provider
  * created and owns positioning of -- callers portal their own content (e.g. the
@@ -55,7 +66,7 @@ export interface MapProvider {
    * `mountOverlay`, a provider instance operates on its own currently-mounted map.
    */
   onMapClick(cb: () => void): Unsubscribe;
-  fitBounds(handle: MapHandle, b: Bounds): void;
+  fitBounds(handle: MapHandle, b: Bounds, options?: FitBoundsOptions): void;
   destroy(handle: MapHandle): void;
   /**
    * Repaints the SELECTED/HOVERED marker's existing DOM without recreating any marker -- toggles

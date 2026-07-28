@@ -1,4 +1,4 @@
-import type { Bounds, EntityId, IListingConfigOptions, MapHandle, MapProvider, Page } from '~/interfaces';
+import type { Bounds, EntityId, FitBoundsOptions, IListingConfigOptions, MapHandle, MapProvider, Page } from '~/interfaces';
 import { ListingEventType, PaginationMode } from '~/enums';
 
 import type { ListingEvent } from './events/listing-events';
@@ -248,9 +248,9 @@ export class ListingEngine<TEntity, TFilters> {
    * requested box to the container's aspect ratio, so echoing the requested
    * `bounds` here would briefly publish a viewport the map never shows).
    */
-  fitBounds(bounds: Bounds): void {
+  fitBounds(bounds: Bounds, options?: FitBoundsOptions): void {
     if (!this.map || !this.mapHandle) return;
-    this.map.fitBounds(this.mapHandle, bounds);
+    this.map.fitBounds(this.mapHandle, bounds, options);
   }
 
   // `id: EntityId | null` — passing `null` clears the selection (no match is

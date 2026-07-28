@@ -555,6 +555,103 @@ describe('googleProvider', () => {
     expect(fitBoundsCalls).toEqual([bounds]);
   });
 
+  describe('fitBounds animate (fly-to)', () => {
+    // Gives the fake map a current viewport in the LatLngBounds shape
+    // `boundsFromGoogle` reads (getSouthWest/getNorthEast accessors).
+    function setView(map: FakeMap, view: Bounds): void {
+      map.bounds = {
+        getSouthWest: () => ({ lat: () => view.south, lng: () => view.west }),
+        getNorthEast: () => ({ lat: () => view.north, lng: () => view.east }),
+      };
+    }
+
+    it('stages a far destination as overview (union) then, on idle, the target', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap };
+      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 }); // ~San Francisco
+      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 }; // ~Chicago
+
+      provider.fitBounds(handle, target, { animate: true });
+
+      // Leg 1 only: the union of the current view and the target.
+      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }]);
+
+      // Camera settles -> leg 2 fits the target itself.
+      raw.map.trigger('idle');
+      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }, target]);
+
+      // The one-shot listener is spent: later idles (user pans) do not re-fit.
+      raw.map.trigger('idle');
+      expect(fitBoundsCalls).toHaveLength(2);
+    });
+
+    it('fits the target directly when the current view is unknown', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+
+      provider.fitBounds(handle, target, { animate: true });
+
+      expect(fitBoundsCalls).toEqual([target]);
+    });
+
+    it('fits the target directly when the current view already contains it', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap };
+      setView(raw.map, { west: -125, south: 30, east: -80, north: 45 });
+      const target: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+
+      provider.fitBounds(handle, target, { animate: true });
+
+      expect(fitBoundsCalls).toEqual([target]);
+      raw.map.trigger('idle');
+      expect(fitBoundsCalls).toHaveLength(1);
+    });
+
+    it('fits the target directly when the union would span >= 180 degrees of longitude', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap };
+      setView(raw.map, { west: -170, south: 30, east: -160, north: 45 });
+      const target: Bounds = { west: 150, south: 30, east: 160, north: 45 };
+
+      provider.fitBounds(handle, target, { animate: true });
+
+      expect(fitBoundsCalls).toEqual([target]);
+    });
+
+    it('a newer fitBounds call cancels the pending zoom-in leg of an in-flight fly', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap };
+      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 });
+      const stale: Bounds = { west: -88, south: 41.5, east: -87.5, north: 42.2 };
+      const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
+
+      provider.fitBounds(handle, stale, { animate: true }); // leg 1 (union with stale)
+      provider.fitBounds(handle, fresh); // supersedes before idle
+
+      raw.map.trigger('idle');
+      // The stale zoom-in leg never lands -- only the overview and the fresh fit.
+      expect(fitBoundsCalls).toEqual([{ west: -123, south: 37, east: -87.5, north: 42.2 }, fresh]);
+    });
+
+    it('destroy cancels the pending zoom-in leg', async () => {
+      const provider = googleProvider({ apiKey: 'k' });
+      const handle = await provider.mount(document.createElement('div'), {});
+      const raw = handle.raw as { map: FakeMap };
+      setView(raw.map, { west: -123, south: 37, east: -122, north: 38 });
+
+      provider.fitBounds(handle, { west: -88, south: 41.5, east: -87.5, north: 42.2 }, { animate: true });
+      provider.destroy(handle);
+
+      raw.map.trigger('idle');
+      expect(fitBoundsCalls).toHaveLength(1); // the overview leg only
+    });
+  });
+
   it('destroy removes all bounds listeners and all markers across every layer', async () => {
     const provider = googleProvider({ apiKey: 'k' });
     const handle = await provider.mount(document.createElement('div'), {});

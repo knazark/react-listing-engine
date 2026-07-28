@@ -1,6 +1,7 @@
 import type {
   Bounds,
   EntityId,
+  FitBoundsOptions,
   LatLng,
   MapHandle,
   MapInitOptions,
@@ -103,7 +104,7 @@ export class FakeMapProvider implements MapProvider {
     }
   }
 
-  fitBounds(_handle: MapHandle, b: Bounds): void {
+  fitBounds(_handle: MapHandle, b: Bounds, _options?: FitBoundsOptions): void {
     this.fitBoundsCalls.push(b);
   }
 

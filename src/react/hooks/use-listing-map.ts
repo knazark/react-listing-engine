@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 
-import type { Bounds, EntityId } from '~/interfaces';
+import type { Bounds, EntityId, FitBoundsOptions } from '~/interfaces';
 
 import { useListing } from './use-listing';
 import { useListingState } from './use-listing-state';
@@ -43,7 +43,10 @@ export function useListingMap() {
   // pipeline (`loadPoints` -> `state.bounds`/`BoundsChanged`/point reload),
   // exactly like a user pan -- see `engine.fitBounds`'s doc comment and the
   // guard-interaction note in `ListingMap`'s mount effect.
-  const fitBounds = useCallback((bounds: Bounds) => engine.fitBounds(bounds), [engine]);
+  const fitBounds = useCallback(
+    (bounds: Bounds, options?: FitBoundsOptions) => engine.fitBounds(bounds, options),
+    [engine],
+  );
 
   return {
     bounds: state.bounds,

@@ -2,6 +2,7 @@ import { importLibrary, setOptions, type APIOptions } from '@googlemaps/js-api-l
 import type {
   Bounds,
   EntityId,
+  FitBoundsOptions,
   LatLng,
   MapHandle,
   MapInitOptions,
@@ -182,6 +183,14 @@ interface GoogleMapRaw {
   clickListeners: Set<GoogleMapsEventListener>;
   /** `undefined` under SSR/environments without `ResizeObserver` -- see `observeContainerResize`. */
   resizeObserver: ResizeObserver | undefined;
+  /**
+   * The pending zoom-in leg of an animated `fitBounds` fly (a one-shot `idle`
+   * listener) -- `null` when no fly is in flight. Tracked so a NEWER
+   * `fitBounds` call (or `destroy`) can cancel it: without cancellation the
+   * stale leg would land after the newer request and yank the camera back to
+   * an old destination.
+   */
+  flightListener: GoogleMapsEventListener | null;
 }
 
 function toRaw(handle: MapHandle): GoogleMapRaw {
@@ -893,6 +902,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         layerMarkerIds: new Map(),
         selectedMarkerId: null,
         hoveredMarkerId: null,
+        flightListener: null,
       };
       // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
       // comment for why this can't just be an unconditional assignment.
@@ -993,16 +1003,67 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       };
     },
 
-    fitBounds(handle: MapHandle, b: Bounds): void {
+    fitBounds(handle: MapHandle, b: Bounds, options?: FitBoundsOptions): void {
       // `Bounds` ({ west, south, east, north }) is structurally identical to
       // `google.maps.LatLngBoundsLiteral`, so it is passed straight through -- no need to
       // construct a `LatLngBounds` instance (which would pull in the 'core' library).
-      toRaw(handle).map.fitBounds(b);
+      const raw = toRaw(handle);
+      // Any new fit request supersedes an in-flight fly -- cancel its pending
+      // zoom-in leg so a stale destination can't land after this one.
+      raw.flightListener?.remove();
+      raw.flightListener = null;
+
+      if (!options?.animate) {
+        raw.map.fitBounds(b);
+        return;
+      }
+
+      // Fly-to: Google only animates `fitBounds` when the camera delta is
+      // small -- a far destination teleports. Staging the move as two legs
+      // keeps each leg animatable: first fit the UNION of the current view
+      // and the target (the zoom-out "overview" showing both areas), then,
+      // once the camera settles (`idle`), fit the target itself (the
+      // zoom-in). Falls back to a direct fit when there is no staging to do:
+      // no current view yet, the current view already contains the target
+      // (plain fitBounds zoom-in animates fine), or the union would span
+      // >= 180 degrees of longitude (a near-world envelope -- fitBounds on
+      // one is unstable around the antimeridian and the direct fit loses
+      // nothing visually at that scale).
+      const currentBounds = raw.map.getBounds();
+      if (!currentBounds) {
+        raw.map.fitBounds(b);
+        return;
+      }
+      const view = boundsFromGoogle(currentBounds);
+      const containsTarget =
+        view.north >= b.north && view.south <= b.south && view.west <= b.west && view.east >= b.east;
+      const union: Bounds = {
+        west: Math.min(view.west, b.west),
+        south: Math.min(view.south, b.south),
+        east: Math.max(view.east, b.east),
+        north: Math.max(view.north, b.north),
+      };
+      if (containsTarget || union.east - union.west >= 180) {
+        raw.map.fitBounds(b);
+        return;
+      }
+
+      // Listener attached BEFORE the overview fit so a (spec-permitted)
+      // synchronous `idle` could never slip between the fit and the attach.
+      const listener = raw.map.addListener('idle', () => {
+        listener.remove();
+        if (raw.flightListener === listener) raw.flightListener = null;
+        raw.map.fitBounds(b);
+      });
+      raw.flightListener = listener;
+      raw.map.fitBounds(union);
     },
 
     destroy(handle: MapHandle): void {
       const raw = toRaw(handle);
       raw.resizeObserver?.disconnect();
+      raw.flightListener?.remove();
+      raw.flightListener = null;
       for (const listener of raw.boundsListeners) listener.remove();
       raw.boundsListeners.clear();
       // Backstop for a caller (e.g. `ListingMap`'s popup-overlay effect) that unsubscribes an

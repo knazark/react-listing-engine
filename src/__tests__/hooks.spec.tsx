@@ -415,7 +415,7 @@ describe('useListingMap map actions (zoomIn / zoomOut / toggleFullscreen / fitBo
     });
 
     expect(fitSpy).toHaveBeenCalledTimes(1);
-    expect(fitSpy).toHaveBeenCalledWith(map.mounts[0], destination);
+    expect(fitSpy).toHaveBeenCalledWith(map.mounts[0], destination, undefined);
   });
 
   it('fitBounds() is a safe no-op when a MapProvider is configured but no map is mounted (no ListingMap rendered)', () => {
