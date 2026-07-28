@@ -302,8 +302,69 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
 }
 
 // How far (px) above the anchor coordinate the popup's bottom edge sits, so it
-// clears the marker centered on that coordinate rather than overlapping it.
+// clears the marker centered on that coordinate rather than overlapping it. Mirrored below the
+// anchor when `draw()` flips the popup to clear the map's top edge (see `clampPopupPosition`).
 const POPUP_OFFSET_Y_PX = 14;
+
+// Minimum breathing room (px) kept between the popup and the map's own edges when `draw()`
+// clamps/flips it into the viewport -- see `clampPopupPosition`.
+const POPUP_VIEWPORT_PAD_PX = 8;
+
+/**
+ * Pure geometry for keeping the on-map popup inside the map's own viewport -- Google's own
+ * InfoWindow clamps/flips analogously; this mirrors that for the custom `OverlayView`-backed
+ * popup (see `PopupOverlayView.draw()`, the only caller).
+ *
+ * The popup's DEFAULT placement puts its bottom-center at `(anchorX, anchorY - offsetY)`, i.e. in
+ * viewport coordinates its box spans `[anchorX - popupW/2, anchorX + popupW/2]` horizontally and
+ * `[anchorY - offsetY - popupH, anchorY - offsetY]` vertically.
+ *
+ * Returns:
+ * - `dx`: horizontal shift (px) to keep the box's `[left, right]` within `[pad, mapW - pad]`.
+ *   Negative shifts LEFT (the box was overflowing the right edge), positive shifts RIGHT
+ *   (overflowing the left edge). If the popup doesn't fit within the padded viewport width at
+ *   all, it's pinned to `pad` rather than split the difference between two edges it can't both
+ *   satisfy.
+ * - `flipBelow`: `true` when the default (above-anchor) placement would overflow the TOP edge
+ *   (`top < pad`) and flipping BELOW the anchor (new top-center at `anchorY + offsetY`) actually
+ *   fits (`anchorY + offsetY + popupH <= mapH - pad`). Otherwise `false` -- including when
+ *   flipping wouldn't help either (a map too short for the popup either way), in which case the
+ *   caller keeps the default above-anchor placement.
+ *
+ * Pure arithmetic, no DOM access -- exported so it's unit-testable without a `google.maps` mock.
+ */
+export function clampPopupPosition(a: {
+  anchorX: number;
+  anchorY: number;
+  popupW: number;
+  popupH: number;
+  mapW: number;
+  mapH: number;
+  offsetY: number;
+  pad: number;
+}): { dx: number; flipBelow: boolean } {
+  const { anchorX, anchorY, popupW, popupH, mapW, mapH, offsetY, pad } = a;
+
+  const left = anchorX - popupW / 2;
+  const right = anchorX + popupW / 2;
+
+  let dx = 0;
+  if (popupW > mapW - pad * 2) {
+    // Doesn't fit within the padded viewport width at all -- pin the left edge to `pad` rather
+    // than trying (and failing) to satisfy both edges at once.
+    dx = pad - left;
+  } else if (right > mapW - pad) {
+    dx = mapW - pad - right;
+  } else if (left < pad) {
+    dx = pad - left;
+  }
+
+  const topIfAbove = anchorY - offsetY - popupH;
+  const bottomIfBelow = anchorY + offsetY + popupH;
+  const flipBelow = topIfAbove < pad && bottomIfBelow <= mapH - pad;
+
+  return { dx, flipBelow };
+}
 
 /**
  * A lat/lng-anchored `OverlayView` that hosts an arbitrary `container` `<div>`
@@ -314,7 +375,7 @@ const POPUP_OFFSET_Y_PX = 14;
  */
 type PopupOverlay = google.maps.OverlayView & { updatePosition(position: LatLng): void };
 interface PopupOverlayCtor {
-  new (container: HTMLElement, position: LatLng): PopupOverlay;
+  new (container: HTMLElement, position: LatLng, mapContainerEl: HTMLElement): PopupOverlay;
 }
 
 // Same lazy-definition dance as `getHtmlMarkerCtor`: `google.maps.OverlayView`
@@ -334,6 +395,7 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
     constructor(
       private readonly container: HTMLElement,
       private position: LatLng,
+      private readonly mapContainerEl: HTMLElement,
     ) {
       super();
     }
@@ -351,17 +413,64 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
       if (typeof google.maps.OverlayView.preventMapHitsAndGesturesFrom === 'function') {
         google.maps.OverlayView.preventMapHitsAndGesturesFrom(this.container);
       }
+      // The popup's React content portals into `container` asynchronously AFTER this fires (the
+      // caller just appended a still-empty node), so the very first `draw()` -- called
+      // synchronously right after `onAdd` by the Maps runtime -- almost always measures a 0x0
+      // container and falls back to the un-clamped placement (see `draw()`). One extra,
+      // rAF-deferred `draw()` nudges a re-clamp once that content has actually painted; Google's
+      // own frequent draw() cadence (zoom/pan/idle) covers everything after that.
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => this.draw());
+      }
     }
 
     override draw(): void {
       const projection = this.getProjection();
       if (!projection) return;
-      const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(this.position.lat, this.position.lng));
+      const latLng = new google.maps.LatLng(this.position.lat, this.position.lng);
+      // `fromLatLngToDivPixel` is in the floatPane's own (unclamped) coordinate system -- always
+      // used for the actual `left`/`top` the container is positioned at, exactly as before.
+      const point = projection.fromLatLngToDivPixel(latLng);
       if (!point) return;
-      // Container CSS anchors its bottom-center on the coordinate
-      // (`translate(-50%, -100%)`); lift it a touch so it clears the marker.
-      this.container.style.left = `${point.x}px`;
-      this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
+
+      const popupW = this.container.offsetWidth;
+      const popupH = this.container.offsetHeight;
+      // `fromLatLngToContainerPixel` is in viewport-relative coordinates -- the same space as
+      // `mapContainerEl`'s `clientWidth`/`clientHeight` -- needed for the clamp geometry below.
+      // Only requested once the popup has a real size: content not yet measured (0x0, e.g. this
+      // very first draw before React has portaled/painted into `container` -- see `onAdd`'s rAF
+      // nudge) makes any clamp math meaningless anyway.
+      const containerPoint = popupW && popupH ? projection.fromLatLngToContainerPixel(latLng) : null;
+
+      if (!containerPoint) {
+        // Not yet measured, or the container-pixel projection isn't available (defensive) --
+        // fall back to the original, un-clamped bottom-center placement. A later `draw()` (the
+        // rAF nudge above, or the map's own next render) re-runs once measured.
+        this.container.style.transform = 'translate(-50%, -100%)';
+        this.container.style.left = `${point.x}px`;
+        this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
+        return;
+      }
+
+      const { dx, flipBelow } = clampPopupPosition({
+        anchorX: containerPoint.x,
+        anchorY: containerPoint.y,
+        popupW,
+        popupH,
+        mapW: this.mapContainerEl.clientWidth,
+        mapH: this.mapContainerEl.clientHeight,
+        offsetY: POPUP_OFFSET_Y_PX,
+        pad: POPUP_VIEWPORT_PAD_PX,
+      });
+
+      this.container.style.left = `${point.x + dx}px`;
+      if (flipBelow) {
+        this.container.style.top = `${point.y + POPUP_OFFSET_Y_PX}px`;
+        this.container.style.transform = 'translate(-50%, 0)';
+      } else {
+        this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
+        this.container.style.transform = 'translate(-50%, -100%)';
+      }
     }
 
     override onRemove(): void {
@@ -919,7 +1028,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       }
 
       const PopupOverlayView = getPopupOverlayCtor();
-      const overlay = new PopupOverlayView(container, position);
+      const overlay = new PopupOverlayView(container, position, currentRaw.containerEl);
       overlay.setMap(currentRaw.map);
 
       return {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Bounds, MapInitOptions, RenderedLayer } from '~/interfaces';
-import { googleProvider } from '../google-maps.provider';
+import { googleProvider, clampPopupPosition } from '../google-maps.provider';
 
 // --- Fake Google Maps JS API surface -----------------------------------
 //
@@ -171,6 +171,9 @@ class FakePinElement {
 // class reference here.
 
 let createdOverlays: FakeOverlayView[] = [];
+// Backs `FakeOverlayView.getProjection().fromLatLngToContainerPixel` -- see that method's doc
+// comment. Reset to the default in `beforeEach`.
+let containerPixelPoint: { x: number; y: number } | null = { x: 5, y: 7 };
 // Flips `FakeOverlayView#setMap` from synchronously invoking `onAdd()`/`draw()` (the default,
 // used by every other test in this file) to deferring them to a microtask -- matching the REAL
 // `google.maps.OverlayView`, whose `onAdd()` fires asynchronously on the next map render cycle,
@@ -221,7 +224,16 @@ class FakeOverlayView {
   }
 
   getProjection() {
-    return { fromLatLngToDivPixel: () => ({ x: 5, y: 7 }) };
+    return {
+      fromLatLngToDivPixel: () => ({ x: 5, y: 7 }),
+      // Viewport-relative pixel coords used by `draw()`'s clamp geometry (see
+      // `clampPopupPosition`) -- controllable per test via the mutable `containerPixelPoint`
+      // below, independent of the fixed `fromLatLngToDivPixel` value above (real Maps JS
+      // projections return different numbers from each, since they're different coordinate
+      // systems). Reset to a default in `beforeEach`; a test sets `null` to exercise the
+      // defensive fallback when this projection isn't available.
+      fromLatLngToContainerPixel: () => containerPixelPoint,
+    };
   }
 }
 
@@ -326,6 +338,7 @@ describe('googleProvider', () => {
     createdClusterers = [];
     createdOverlays = [];
     deferOverlayOnAdd = false;
+    containerPixelPoint = { x: 5, y: 7 };
     // Restore the real fn in case the previous test deleted it (the
     // `preventMapHitsAndGesturesFrom`-unavailable guard test below) and clear call history from
     // every other test.
@@ -816,6 +829,92 @@ describe('googleProvider', () => {
 
       // Flush the deferred onAdd microtask -- mirrors the map's next render cycle.
       await vi.waitFor(() => expect(created.pane.contains(overlay.container)).toBe(true));
+    });
+
+    it('onAdd schedules a requestAnimationFrame-deferred re-draw (so the viewport clamp can re-apply once the popup\'s async-portaled content has actually been measured)', async () => {
+      const rafSpy = vi.fn();
+      vi.stubGlobal('requestAnimationFrame', rafSpy);
+
+      const provider = googleProvider({ apiKey: 'k' });
+      await provider.mount(document.createElement('div'), {});
+      // `mount()` itself already schedules one rAF probe (see `observeContainerResize`) -- count
+      // from here so this assertion isolates the NEW nudge `mountOverlay`'s `onAdd` adds.
+      const callsBeforeOverlay = rafSpy.mock.calls.length;
+
+      provider.mountOverlay({ lat: 3, lng: 4 });
+
+      expect(rafSpy.mock.calls.length).toBe(callsBeforeOverlay + 1);
+      expect(rafSpy.mock.calls[callsBeforeOverlay][0]).toEqual(expect.any(Function));
+    });
+
+    describe('viewport clamping (regression: a popup centered on a marker near the map edge used to render half off-screen)', () => {
+      async function mountClampableOverlay(el: HTMLElement, position: { lat: number; lng: number }) {
+        const provider = googleProvider({ apiKey: 'k' });
+        await provider.mount(el, {});
+        const overlay = provider.mountOverlay(position);
+        // Simulate the popup's React content having been measured: a real 200x100 box.
+        Object.defineProperty(overlay.container, 'offsetWidth', { value: 200, configurable: true });
+        Object.defineProperty(overlay.container, 'offsetHeight', { value: 100, configurable: true });
+        // mountOverlay's own initial draw() already ran against the (still 0x0 at that instant)
+        // container, so force a re-draw now that size + containerPixelPoint are set up -- mirrors
+        // the existing 'setPosition re-runs the projection' test's approach.
+        overlay.setPosition(position);
+        return overlay;
+      }
+
+      function makeMapEl(width: number, height: number): HTMLElement {
+        const el = document.createElement('div');
+        Object.defineProperty(el, 'clientWidth', { value: width, configurable: true });
+        Object.defineProperty(el, 'clientHeight', { value: height, configurable: true });
+        return el;
+      }
+
+      it('shifts the popup LEFT (negative dx) when its marker sits near the map\'s right edge', async () => {
+        containerPixelPoint = { x: 780, y: 300 }; // near the right edge of an 800px-wide map
+        const overlay = await mountClampableOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+        // divPixel is the fake's fixed { x: 5, y: 7 }; clampPopupPosition shifts left by 88px for
+        // this exact geometry (see the equivalent clampPopupPosition unit test).
+        expect(overlay.container.style.left).toBe('-83px'); // 5 + (-88)
+        expect(overlay.container.style.top).toBe('-7px'); // unchanged -- no vertical flip
+        expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+      });
+
+      it('shifts the popup RIGHT (positive dx) when its marker sits near the map\'s left edge', async () => {
+        containerPixelPoint = { x: 20, y: 300 }; // near the left edge
+        const overlay = await mountClampableOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+        expect(overlay.container.style.left).toBe('93px'); // 5 + 88
+        expect(overlay.container.style.top).toBe('-7px');
+        expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+      });
+
+      it('flips the popup BELOW the anchor (and switches the transform) when its marker sits near the map\'s top edge', async () => {
+        containerPixelPoint = { x: 400, y: 20 }; // near the top edge, horizontally centered
+        const overlay = await mountClampableOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+        expect(overlay.container.style.left).toBe('5px'); // no horizontal shift needed
+        expect(overlay.container.style.top).toBe('21px'); // 7 + 14 (flipped BELOW the anchor)
+        expect(overlay.container.style.transform).toBe('translate(-50%, 0)');
+      });
+
+      it('does not shift or flip when the marker is well within the map, away from every edge', async () => {
+        containerPixelPoint = { x: 400, y: 300 }; // dead center of an 800x600 map
+        const overlay = await mountClampableOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+        expect(overlay.container.style.left).toBe('5px');
+        expect(overlay.container.style.top).toBe('-7px');
+        expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+      });
+
+      it('falls back to the original un-clamped placement when the container-pixel projection is unavailable (defensive, even with a measured popup)', async () => {
+        containerPixelPoint = null;
+        const overlay = await mountClampableOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+        expect(overlay.container.style.left).toBe('5px');
+        expect(overlay.container.style.top).toBe('-7px');
+        expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+      });
     });
   });
 
@@ -1388,5 +1487,65 @@ describe('googleProvider', () => {
 
       warnSpy.mockRestore();
     });
+  });
+});
+
+// --- clampPopupPosition (pure) -------------------------------------------------------------
+//
+// Pure geometry backing `PopupOverlayView.draw()`'s viewport clamp/flip -- no `google.maps` mock
+// needed, unlike the rest of this file. See that function's doc comment in the source module.
+
+describe('clampPopupPosition', () => {
+  // An 800x600 map with a 200x100 popup, 14px above-anchor offset, 8px viewport padding -- the
+  // shared geometry for every case below except the ones that deliberately vary map/popup size.
+  const base = { mapW: 800, mapH: 600, popupW: 200, popupH: 100, offsetY: 14, pad: 8 };
+
+  it('does not shift or flip a popup anchored well within the map, away from every edge', () => {
+    // box: left=300, right=500 -- both within [pad, mapW-pad] = [8, 792].
+    // topIfAbove = 300 - 14 - 100 = 186, not < pad(8) -- no top overflow either.
+    expect(clampPopupPosition({ ...base, anchorX: 400, anchorY: 300 })).toEqual({ dx: 0, flipBelow: false });
+  });
+
+  it('shifts LEFT (negative dx) when the popup would overflow the map\'s right edge', () => {
+    // box: left=680, right=880; clamped right edge is mapW-pad=792 -> dx = 792 - 880 = -88.
+    const result = clampPopupPosition({ ...base, anchorX: 780, anchorY: 300 });
+    expect(result.dx).toBe(-88);
+    expect(result.dx).toBeLessThan(0);
+    expect(result.flipBelow).toBe(false);
+  });
+
+  it('shifts RIGHT (positive dx) when the popup would overflow the map\'s left edge', () => {
+    // box: left=-80, right=120; clamped left edge is pad=8 -> dx = 8 - (-80) = 88.
+    const result = clampPopupPosition({ ...base, anchorX: 20, anchorY: 300 });
+    expect(result.dx).toBe(88);
+    expect(result.dx).toBeGreaterThan(0);
+    expect(result.flipBelow).toBe(false);
+  });
+
+  it('flips BELOW the anchor when the default above-anchor placement overflows the top edge and there is room below', () => {
+    // topIfAbove = 20 - 14 - 100 = -94, < pad(8) -- overflows the top.
+    // bottomIfBelow = 20 + 14 + 100 = 134, <= mapH-pad(592) -- flipping fits.
+    const result = clampPopupPosition({ ...base, anchorX: 400, anchorY: 20 });
+    expect(result.flipBelow).toBe(true);
+    expect(result.dx).toBe(0); // horizontally centered -- no shift needed either way
+  });
+
+  it('does NOT flip when the top overflows but flipping below would ALSO overflow (a map too short for the popup either way)', () => {
+    // Same top overflow as above, but a short 100px-tall map: bottomIfBelow(134) > mapH-pad(92).
+    const result = clampPopupPosition({ ...base, mapH: 100, anchorX: 400, anchorY: 20 });
+    expect(result.flipBelow).toBe(false);
+  });
+
+  it('pins to the left pad -- rather than splitting the difference between two edges it cannot both satisfy -- when the popup is wider than the map has room for', () => {
+    // popupW(200) > mapW-pad*2 (150-16=134) -- doesn't fit no matter how it's shifted.
+    // left = 75-100=-25 -> dx = pad - left = 8-(-25) = 33, pinning the left edge to exactly `pad`.
+    const result = clampPopupPosition({ ...base, mapW: 150, anchorX: 75, anchorY: 300 });
+    expect(result.dx).toBe(33);
+  });
+
+  it('does not shift when the box sits exactly on the padded edges (boundary, not overflow)', () => {
+    // right = 692+100=792, exactly mapW-pad(792); left = 592, within bounds -- no overflow.
+    const result = clampPopupPosition({ ...base, anchorX: 692, anchorY: 300 });
+    expect(result.dx).toBe(0);
   });
 });
