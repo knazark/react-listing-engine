@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { PaginationMode } from '~/enums';
 import type { LatLng } from '~/interfaces';
 import {
 	ListingFilters,
@@ -262,6 +263,17 @@ export function StyledListingLayout<TFilters = unknown>({
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const { atEnd, atStart, ref: barScrollRef } = useScrollEdges<HTMLDivElement>();
 
+	// Paged-mode scroll reset: `.rle-list` is this layout's own scroll
+	// container, so when `goToPage` lands on a new page (pageIndex changes) the
+	// new page must start at the TOP of the list, not wherever page N-1 left
+	// the scroll position. Infinite mode appends in place — resetting there
+	// would yank the user away from the rows they just loaded, so it's skipped.
+	const listScrollRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (pagination.mode !== PaginationMode.Paged) return;
+		if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+	}, [pagination.mode, pagination.pageIndex]);
+
 	// Deferred mobile-sheet filters: `draft` buffers every control edit made
 	// INSIDE the sheet -- nothing reaches the engine until "Show N results"
 	// commits it (see `ListingFilters`'s `draft`/`onDraftChange` doc). Re-synced
@@ -387,7 +399,7 @@ export function StyledListingLayout<TFilters = unknown>({
 				className={`rle-body ${hasMap ? 'rle-split' : 'rle-body--list-only'}`}
 				data-mobile-view={mobileView}
 			>
-				<div className="rle-list">
+				<div className="rle-list" ref={listScrollRef}>
 					<div className="rle-list-header">
 						<ListingResultHeader />
 						{toolbarEnd && <div className="rle-list-header__toolbar">{toolbarEnd}</div>}

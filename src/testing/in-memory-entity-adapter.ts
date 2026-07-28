@@ -5,7 +5,10 @@ import type { Bounds, EntityAdapter, EntityId, LatLng, MapPoint, Page, PageReque
  * `predicate` and paginates by array index: `cursor` is the (stringified)
  * index of the last row already served (`null` means start from the
  * beginning), and the returned `nextCursor` is that same kind of value for
- * the next call — `null` once nothing is left. `getPoints()` runs the same
+ * the next call — `null` once nothing is left. It is also offset-capable:
+ * with no cursor, `offset` positions the window directly (cursor wins when
+ * both appear, matching `PageRequest`'s contract), which is what
+ * `ListingEngine#goToPage`'s numbered pagination sends. `getPoints()` runs the same
  * predicate filter and projects each surviving row through `toLatLng`
  * (further narrowed to `bounds` when one is given). `idOf` defaults to
  * reading `row.id`, mirroring most real adapters, but can be overridden for
@@ -21,7 +24,7 @@ export class InMemoryEntityAdapter<TEntity, TFilters> implements EntityAdapter<T
 
   async list(filters: TFilters, page: PageRequest): Promise<Page<TEntity>> {
     const filtered = this.rows.filter(row => this.predicate(row, filters));
-    const start = page.cursor == null ? 0 : Number(page.cursor) + 1;
+    const start = page.cursor != null ? Number(page.cursor) + 1 : (page.offset ?? 0);
     const items = filtered.slice(start, start + page.limit);
     const lastServedIndex = start + items.length - 1;
     const hasMore = lastServedIndex + 1 < filtered.length;

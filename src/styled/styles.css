@@ -583,6 +583,77 @@
 }
 
 /* -----------------------------------------------------------------------
+ * Numbered pagination (Paged mode) -- `ListingPagination`'s "1 2 3 … N"
+ * pager. Rendered inside `.rle-list` after the results grid; `flex-shrink: 0`
+ * mirrors the guard the other in-scroller blocks use so the pager never gets
+ * crushed if `.rle-list` becomes a flex column.
+ * --------------------------------------------------------------------- */
+
+.rle-pagination {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	gap: var(--rle-space);
+	padding: var(--rle-space) 0;
+}
+
+.rle-page-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 36px;
+	min-width: 36px;
+	padding: 0 0.5em;
+	background: var(--rle-surface);
+	border: 1px solid var(--rle-border);
+	border-radius: var(--rle-radius-sm);
+	color: var(--rle-fg);
+	font-size: var(--rle-fs-md);
+	font-variant-numeric: tabular-nums;
+	cursor: pointer;
+	transition:
+		background-color 150ms ease,
+		border-color 150ms ease,
+		box-shadow 150ms ease,
+		color 150ms ease;
+}
+
+/* Hover wash explicitly scoped to enabled, non-active buttons -- the active
+   page must keep its primary fill (its own brightness hover below) and a
+   disabled button must not light up, and neither exclusion can be left to
+   source-order/specificity races against this 3-pseudo selector. */
+.rle-page-btn:hover:not(:disabled):not(.rle-page-btn--active) {
+	background: var(--rle-muted-bg);
+}
+
+.rle-page-btn:focus-visible {
+	outline: none;
+	border-color: var(--rle-primary);
+	box-shadow: 0 0 0 3px var(--rle-ring);
+}
+
+.rle-page-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.rle-page-btn--active {
+	background: var(--rle-primary);
+	border-color: transparent;
+	color: var(--rle-primary-contrast);
+}
+
+.rle-page-btn--active:hover:not(:disabled) {
+	filter: brightness(0.94);
+}
+
+.rle-page-ellipsis {
+	color: var(--rle-muted);
+	font-size: var(--rle-fs-md);
+}
+
+/* -----------------------------------------------------------------------
  * Layout shell -- the responsive "filter bar + list/map split" chrome
  * `StyledListingLayout` composes the `~/react` structure-only components
  * into. Breakpoint: 1024px, matching the mobile-only bottom nav/sheet below.

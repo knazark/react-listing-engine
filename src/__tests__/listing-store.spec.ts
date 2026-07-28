@@ -23,7 +23,7 @@ describe('ListingStore', () => {
       bounds: null,
       selection: null,
       hovered: null,
-      pagination: { mode: PaginationMode.Paged, loading: false },
+      pagination: { mode: PaginationMode.Paged, loading: false, pageIndex: 0 },
       layers: {},
       points: {},
     });
@@ -94,7 +94,24 @@ describe('ListingStore', () => {
 
     expect(store.getState().bounds).toEqual({ west: 1, south: 2, east: 3, north: 4 });
     expect(store.getState().selection).toBe(42);
-    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true });
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 0 });
+    expect(cb).toHaveBeenCalledTimes(3);
+  });
+
+  it('setPageIndex updates only the page index (mode/loading untouched), notifying once per call', () => {
+    const store = new ListingStore<{ id: number }, object>({ filters: {} });
+    const cb = vi.fn();
+    store.subscribe(cb);
+
+    store.setPageIndex(3);
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: false, pageIndex: 3 });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    store.setLoading(true); // and the reverse: setLoading leaves pageIndex alone
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 3 });
+
+    store.setPageIndex(0);
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 0 });
     expect(cb).toHaveBeenCalledTimes(3);
   });
 
@@ -252,7 +269,7 @@ describe('ListingStore nested immutability (getState() must not expose a mutable
     // The old snapshot's nested containers are untouched by later mutator calls.
     expect(before.filters).toEqual({ q: 'a' });
     expect(before.layers).toEqual({ markers: true });
-    expect(before.pagination).toEqual({ mode: PaginationMode.Paged, loading: false });
+    expect(before.pagination).toEqual({ mode: PaginationMode.Paged, loading: false, pageIndex: 0 });
   });
 
   it('appendResults produces a fresh, independently-frozen items array rather than mutating the previous one', () => {

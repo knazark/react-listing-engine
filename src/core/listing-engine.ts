@@ -169,6 +169,41 @@ export class ListingEngine<TEntity, TFilters> {
     }
   }
 
+  /**
+   * Numbered/offset pagination for `PaginationMode.Paged`: fetches the
+   * 0-based page `index` with an offset-based `PageRequest`
+   * (`offset = index * pageSize` — see that field's doc; numbered pagination
+   * needs an offset-capable adapter) and REPLACES the current results,
+   * recording the landed page in `state.pagination.pageIndex`. No-op for a
+   * negative index. Same last-wins token + loading discipline as
+   * `loadPage()`, so a slow, superseded page fetch never clobbers a newer
+   * one (and never leaves `loading` stuck true).
+   */
+  async goToPage(index: number): Promise<void> {
+    if (index < 0) return;
+
+    const token = ++this.queryToken;
+    const primary = this.primaryDataset();
+    this.store.setLoading(true);
+    try {
+      const page = await primary.adapter.list(this.currentFilters(), {
+        offset: index * this.config.options.pageSize,
+        limit: this.config.options.pageSize,
+      });
+      if (token !== this.queryToken) return; // superseded — last-wins
+
+      this.store.setResults(page as Page<TEntity>);
+      this.store.setPageIndex(index);
+      this.emitter.emit({
+        type: ListingEventType.ResultsLoaded,
+        datasetId: this.primaryDatasetId,
+        count: page.items.length,
+      });
+    } finally {
+      if (token === this.queryToken) this.store.setLoading(false);
+    }
+  }
+
   async loadPoints(bounds: Bounds): Promise<void> {
     this.store.setBounds(bounds);
     this.emitter.emit({ type: ListingEventType.BoundsChanged, bounds });
@@ -286,6 +321,7 @@ export class ListingEngine<TEntity, TFilters> {
       if (token !== this.queryToken) return; // superseded — last-wins
 
       this.store.setResults(page as Page<TEntity>);
+      this.store.setPageIndex(0); // a fresh filter query always lands on page 1
       this.emitter.emit({
         type: ListingEventType.ResultsLoaded,
         datasetId: this.primaryDatasetId,

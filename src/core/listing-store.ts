@@ -13,7 +13,11 @@ export interface ListingState<TEntity, TFilters> {
   // `setHovered` is called) — existing consumers that never call it see no
   // behavior change.
   hovered: EntityId | null;
-  pagination: { mode: PaginationMode; loading: boolean };
+  // `pageIndex` is the 0-based index of the currently-displayed page for
+  // numbered (Paged-mode) pagination — written by `ListingEngine#goToPage`
+  // and reset to 0 whenever a fresh filter query lands, so a filter change
+  // always reads as "back on page 1". Inert in Infinite mode (never leaves 0).
+  pagination: { mode: PaginationMode; loading: boolean; pageIndex: number };
   layers: Record<string, boolean>;
   // Per-dataset map points, populated by ListingEngine#loadPoints. Keyed by
   // DatasetDefinition.id, same key space as `layers`.
@@ -50,7 +54,7 @@ export class ListingStore<TEntity, TFilters> {
       bounds: null,
       selection: null,
       hovered: null,
-      pagination: { mode: init.mode ?? PaginationMode.Paged, loading: false },
+      pagination: { mode: init.mode ?? PaginationMode.Paged, loading: false, pageIndex: 0 },
       layers: {},
       points: {},
     });
@@ -101,6 +105,10 @@ export class ListingStore<TEntity, TFilters> {
 
   setLoading(loading: boolean): void {
     this.setState({ pagination: { ...this.state.pagination, loading } });
+  }
+
+  setPageIndex(index: number): void {
+    this.setState({ pagination: { ...this.state.pagination, pageIndex: index } });
   }
 
   // Replaces the points array for a single dataset, leaving every other

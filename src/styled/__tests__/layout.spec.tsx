@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -282,6 +282,21 @@ describe('StyledListingLayout', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'List' }));
 		expect(body).toHaveAttribute('data-mobile-view', 'list');
+	});
+
+	it('scrolls the .rle-list container back to the top when a Paged goToPage lands on a new page', async () => {
+		const { container, engine } = renderLayout();
+		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+		const list = container.querySelector('.rle-list') as HTMLDivElement;
+		list.scrollTop = 250; // the user scrolled partway down page 1
+
+		await act(async () => {
+			await engine.goToPage(1);
+		});
+
+		// The layout's pageIndex effect resets the scroller so page 2 starts at the top.
+		await waitFor(() => expect(list.scrollTop).toBe(0));
 	});
 
 	it('fires mobileAction.onClick when the header action button is clicked', async () => {

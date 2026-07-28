@@ -579,6 +579,86 @@ describe('ListingEngine', () => {
     overriddenEngine.dispose();
   });
 
+  describe('goToPage', () => {
+    function makePagedEngine(
+      list: EntityAdapter<{ id: number }, { tag?: string }>['list'],
+      pageSize = 2,
+    ): ListingEngine<{ id: number }, { tag?: string }> {
+      const adapter: EntityAdapter<{ id: number }, { tag?: string }> = { list, getPoints: async () => [] };
+      const datasets = new DatasetRegistry<unknown, { tag?: string }>();
+      datasets.add({ id: 'x', adapter, marker: {} });
+      return new ListingEngine<{ id: number }, { tag?: string }>({ datasets, config: { debounceMs: 0, pageSize } });
+    }
+
+    it('requests the page by offset (index * pageSize), replaces results, records pageIndex, and emits ResultsLoaded', async () => {
+      const calls: PageRequest[] = [];
+      const engine = makePagedEngine(async (_filters, page) => {
+        calls.push(page);
+        return { items: [{ id: 5 }, { id: 6 }], nextCursor: null, total: 10 };
+      });
+      const loaded = vi.fn();
+      engine.on(ListingEventType.ResultsLoaded, loaded);
+
+      await engine.goToPage(2);
+
+      expect(calls).toEqual([{ offset: 4, limit: 2 }]);
+      expect(engine.state.results.items).toEqual([{ id: 5 }, { id: 6 }]);
+      expect(engine.state.pagination.pageIndex).toBe(2);
+      expect(engine.state.pagination.loading).toBe(false);
+      expect(loaded).toHaveBeenCalledWith({ type: 'ResultsLoaded', datasetId: 'x', count: 2 });
+      engine.dispose();
+    });
+
+    it('no-ops for a negative index (no query, no state change)', async () => {
+      const list = vi.fn(async () => ({ items: [{ id: 1 }], nextCursor: null }));
+      const engine = makePagedEngine(list);
+
+      await engine.goToPage(-1);
+
+      expect(list).not.toHaveBeenCalled();
+      expect(engine.state.pagination.pageIndex).toBe(0);
+      expect(engine.state.pagination.loading).toBe(false);
+      engine.dispose();
+    });
+
+    it('last-wins: a slow, superseded goToPage never overwrites the newer page result or its pageIndex', async () => {
+      let resolveSlow!: (page: Page<{ id: number }>) => void;
+      const slowPromise = new Promise<Page<{ id: number }>>(resolve => {
+        resolveSlow = resolve;
+      });
+      const engine = makePagedEngine(async (_filters, page) => {
+        if (page.offset === 2) return slowPromise; // page 1 stalls
+        return { items: [{ id: 9 }], nextCursor: null, total: 10 }; // page 4 resolves fast
+      });
+
+      const slow = engine.goToPage(1); // offset 2 — stalls on slowPromise
+      const fast = engine.goToPage(4); // offset 8 — starts immediately too, resolves fast
+
+      await fast;
+      expect(engine.state.results.items).toEqual([{ id: 9 }]);
+      expect(engine.state.pagination.pageIndex).toBe(4);
+
+      resolveSlow({ items: [{ id: 1 }], nextCursor: null, total: 10 }); // stale page resolves late
+      await slow;
+
+      expect(engine.state.results.items).toEqual([{ id: 9 }]); // unchanged by the stale response
+      expect(engine.state.pagination.pageIndex).toBe(4); // pageIndex not rewound either
+      expect(engine.state.pagination.loading).toBe(false); // not stuck true
+      engine.dispose();
+    });
+
+    it('a filter change (applyFilters) resets pageIndex to 0', async () => {
+      const engine = makePagedEngine(async () => ({ items: [{ id: 1 }], nextCursor: null, total: 10 }));
+
+      await engine.goToPage(3);
+      expect(engine.state.pagination.pageIndex).toBe(3);
+
+      await engine.applyFilters({ tag: 'x' });
+      expect(engine.state.pagination.pageIndex).toBe(0);
+      engine.dispose();
+    });
+  });
+
   describe('fitBounds', () => {
     const bounds: Bounds = { west: 2, south: 46, east: 24, north: 52 };
 

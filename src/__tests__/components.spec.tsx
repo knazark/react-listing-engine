@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { composeListingProviders, withConfig, withDataset, withFilters, withMap } from '~/core';
 import { FilterRegistry } from '~/core/registries/filter-registry';
-import type { Bounds, FilterControlProps, LatLng, MapHandle, RenderedLayer, Unsubscribe } from '~/interfaces';
+import { PaginationMode } from '~/enums';
+import type { Bounds, FilterControlProps, LatLng, MapHandle, Page, PageRequest, RenderedLayer, Unsubscribe } from '~/interfaces';
 import { ListingComponentsProvider, ListingProvider } from '~/react';
 import type { IListingCardProps } from '~/react';
 import {
@@ -172,31 +173,18 @@ describe('ListingToolbar', () => {
 });
 
 describe('ListingPagination', () => {
-  it('renders nothing when there is no nextCursor', async () => {
-    function FilterControls() {
-      const engine = useListing();
-      return <button onClick={() => void engine.applyFilters({})}>load</button>;
-    }
-
-    render(
-      <Wrapper>
-        <FilterControls />
-        <ListingPagination />
-      </Wrapper>,
-    );
-
-    // No results loaded yet -> nextCursor is null -> no dangling button.
-    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
-
-    // pageSize (20) > total rows (4), so nextCursor stays null after the load
-    // too -> still nothing rendered.
-    fireEvent.click(screen.getByText('load'));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument(),
-    );
-  });
-
-  it('enables the button and calls engine.loadPage() when a nextCursor is present', async () => {
+  /**
+   * Renders `<ListingPagination>` (plus a "load" trigger for the initial
+   * `applyFilters({})` query) against its own provider so each test controls
+   * `pageSize` / `pagination` mode / row count, and hands the engine back
+   * out for spying/driving.
+   */
+  function renderPagination(options?: {
+    pageSize?: number;
+    pagination?: PaginationMode;
+    rows?: Property[];
+    adapter?: InMemoryEntityAdapter<Property, Filters>;
+  }) {
     let capturedEngine: ReturnType<typeof useListing> | null = null;
 
     function FilterControls() {
@@ -205,9 +193,10 @@ describe('ListingPagination', () => {
       return <button onClick={() => void engine.applyFilters({})}>load</button>;
     }
 
-    const adapter = new InMemoryEntityAdapter<Property, Filters>(rows, predicate, toLatLng);
+    const adapter =
+      options?.adapter ?? new InMemoryEntityAdapter<Property, Filters>(options?.rows ?? rows, predicate, toLatLng);
     const props = composeListingProviders<Filters>(
-      withConfig<Filters>({ debounceMs: 0, pageSize: 1 }),
+      withConfig<Filters>({ debounceMs: 0, pageSize: options?.pageSize ?? 1, pagination: options?.pagination }),
       withDataset<Property, Filters>({ id: 'p', adapter, marker: { iconUrl: () => '' } }),
     );
 
@@ -220,11 +209,129 @@ describe('ListingPagination', () => {
       </ListingProvider>,
     );
 
+    return { engine: () => capturedEngine! };
+  }
+
+  /** `rows` clones enumerated out to `count` entries — for multi-page fixtures. */
+  function manyRows(count: number): Property[] {
+    return Array.from({ length: count }, (_, i) => ({
+      id: `row-${i + 1}`,
+      title: `Loft ${i + 1}`,
+      price: i + 1,
+      lat: i,
+      lng: i,
+    }));
+  }
+
+  it('renders nothing in Paged mode when there is at most one page', async () => {
+    renderPagination({ pageSize: 20 }); // 4 rows / pageSize 20 -> totalPages 1
+
+    // No results loaded yet -> nothing to page through -> no dangling chrome.
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument());
+  });
+
+  it('Paged mode with a known total renders prev/next plus one numbered button per page, the active page marked aria-current', async () => {
+    renderPagination(); // 4 rows / pageSize 1 -> 4 pages
+
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument());
+
+    expect(screen.getAllByRole('button', { name: /^Page \d+$/ })).toHaveLength(4);
+    const pageOne = screen.getByRole('button', { name: 'Page 1' });
+    expect(pageOne).toHaveAttribute('aria-current', 'page');
+    expect(pageOne).toHaveClass('rle-page-btn--active');
+    expect(screen.getByRole('button', { name: 'Page 2' })).not.toHaveAttribute('aria-current');
+
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled(); // on the first page
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+  });
+
+  it('clicking a page button calls engine.goToPage with the 0-based index, and the active page follows', async () => {
+    const { engine } = renderPagination();
+
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Page 3' })).toBeEnabled());
+
+    const goToPageSpy = vi.spyOn(engine(), 'goToPage');
+    fireEvent.click(screen.getByRole('button', { name: 'Page 3' }));
+
+    expect(goToPageSpy).toHaveBeenCalledWith(2);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Page 3' })).toHaveAttribute('aria-current', 'page'));
+    // Landing mid-run enables prev; next stays enabled (page 3 of 4).
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+  });
+
+  it('windows past 7 pages: first + last + a window around the current page, ellipses for the gaps', async () => {
+    const { engine } = renderPagination({ rows: manyRows(15) }); // pageSize 1 -> 15 pages
+
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument());
+
+    // On page 1: [1] 2 … 15 — one trailing gap.
+    expect(screen.getAllByRole('button', { name: /^Page \d+$/ })).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Page 1' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Page 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Page 15' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Page 8' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('…')).toHaveLength(1);
+
+    // Jump mid-run: 1 … 7 [8] 9 … 15 — window around current, two gaps.
+    await act(async () => {
+      await engine().goToPage(7);
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Page 8' })).toHaveAttribute('aria-current', 'page'));
+    expect(screen.getAllByRole('button', { name: /^Page \d+$/ })).toHaveLength(5); // 1, 7, 8, 9, 15
+    expect(screen.getByRole('button', { name: 'Page 7' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Page 9' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Page 4' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('…')).toHaveLength(2);
+  });
+
+  it('Paged mode with an unknown total renders just prev/next, next disabled once a short page marks the end', async () => {
+    // The in-memory adapter minus `total` (offset+cursor behavior intact) —
+    // the "offset-capable API that doesn't report a count" shape the
+    // unknown-total branch exists for.
+    class NoTotalAdapter extends InMemoryEntityAdapter<Property, Filters> {
+      override async list(filters: Filters, page: PageRequest): Promise<Page<Property>> {
+        const { items, nextCursor } = await super.list(filters, page);
+        return { items, nextCursor };
+      }
+    }
+    const adapter = new NoTotalAdapter(rows, predicate, toLatLng);
+
+    const { engine } = renderPagination({ pageSize: 3, adapter }); // 4 rows -> full page, then a short page
+
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: /^Page \d+$/ })).not.toBeInTheDocument(); // no numbers without a total
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled(); // full page (3 of 3) -> may be more
+
+    const goToPageSpy = vi.spyOn(engine(), 'goToPage');
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(goToPageSpy).toHaveBeenCalledWith(1);
+
+    // Page 2 returned 1 of 3 rows (short, no cursor) -> the end: next disabled, prev back enabled.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+  });
+
+  it('Infinite mode still renders the "Load more" button, which calls engine.loadPage()', async () => {
+    const { engine } = renderPagination({ pagination: PaginationMode.Infinite });
+
+    // No results loaded yet -> nextCursor is null -> no dangling button.
+    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByText('load'));
     await waitFor(() => expect(screen.getByRole('button', { name: /load more/i })).toBeEnabled());
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument(); // no pager chrome
 
-    const loadPageSpy = vi.spyOn(capturedEngine!, 'loadPage');
-
+    const loadPageSpy = vi.spyOn(engine(), 'loadPage');
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
     await waitFor(() => expect(loadPageSpy).toHaveBeenCalledTimes(1));
   });
