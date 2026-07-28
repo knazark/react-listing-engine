@@ -392,6 +392,17 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
     // should just stash the new position for the next map-driven `draw()`.
     private attached = false;
 
+    // The viewport clamp/flip computed for the CURRENT anchor, frozen after the first draw() that
+    // could actually measure the popup's content -- see `draw()`. `null` means "not yet computed
+    // for this anchor" (either never measured, or just reset by `updatePosition` re-anchoring to a
+    // different marker). Google calls `draw()` on every map render frame (including every frame of
+    // a pan), but the anchor's lat/lng doesn't change during a pan -- only its pixel projection
+    // does -- so once this is set it must NOT be recomputed until the anchor itself changes.
+    // Otherwise the popup re-clamps to the viewport edge every frame instead of translating with
+    // its marker (this is exactly the bug this field fixes: a popup panned far from its marker
+    // used to stay permanently pinned to whichever edge it first clamped to).
+    private clampOffset: { dx: number; flipBelow: boolean } | null = null;
+
     constructor(
       private readonly container: HTMLElement,
       private position: LatLng,
@@ -429,40 +440,52 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
       if (!projection) return;
       const latLng = new google.maps.LatLng(this.position.lat, this.position.lng);
       // `fromLatLngToDivPixel` is in the floatPane's own (unclamped) coordinate system -- always
-      // used for the actual `left`/`top` the container is positioned at, exactly as before.
+      // used for the actual `left`/`top` the container is positioned at, exactly as before. This
+      // is what makes the popup translate WITH its marker on every call: unlike the clamp offset
+      // below, this is recomputed on every single `draw()`, including every render frame of a pan.
       const point = projection.fromLatLngToDivPixel(latLng);
       if (!point) return;
 
-      const popupW = this.container.offsetWidth;
-      const popupH = this.container.offsetHeight;
-      // `fromLatLngToContainerPixel` is in viewport-relative coordinates -- the same space as
-      // `mapContainerEl`'s `clientWidth`/`clientHeight` -- needed for the clamp geometry below.
-      // Only requested once the popup has a real size: content not yet measured (0x0, e.g. this
-      // very first draw before React has portaled/painted into `container` -- see `onAdd`'s rAF
-      // nudge) makes any clamp math meaningless anyway.
-      const containerPoint = popupW && popupH ? projection.fromLatLngToContainerPixel(latLng) : null;
+      // The clamp/flip is computed ONCE per anchor and then frozen (see `clampOffset`'s doc
+      // comment) -- Google calls `draw()` on every map render frame (every frame of a pan
+      // included), and the anchor's lat/lng doesn't change during a pan, only its pixel
+      // projection does. Recomputing the clamp on every call would re-pin the popup to the
+      // viewport edge every frame instead of letting it move with its marker.
+      if (this.clampOffset === null) {
+        const popupW = this.container.offsetWidth;
+        const popupH = this.container.offsetHeight;
+        // `fromLatLngToContainerPixel` is in viewport-relative coordinates -- the same space as
+        // `mapContainerEl`'s `clientWidth`/`clientHeight` -- needed for the clamp geometry below.
+        // Only requested once the popup has a real size: content not yet measured (0x0, e.g. this
+        // very first draw before React has portaled/painted into `container` -- see `onAdd`'s rAF
+        // nudge) makes any clamp math meaningless anyway.
+        const containerPoint = popupW && popupH ? projection.fromLatLngToContainerPixel(latLng) : null;
 
-      if (!containerPoint) {
-        // Not yet measured, or the container-pixel projection isn't available (defensive) --
-        // fall back to the original, un-clamped bottom-center placement. A later `draw()` (the
-        // rAF nudge above, or the map's own next render) re-runs once measured.
-        this.container.style.transform = 'translate(-50%, -100%)';
-        this.container.style.left = `${point.x}px`;
-        this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
-        return;
+        if (!containerPoint) {
+          // Not yet measurable (or the container-pixel projection isn't available, defensive) --
+          // fall back to the original, un-clamped bottom-center placement for THIS frame only,
+          // and deliberately leave `clampOffset` unset so the next `draw()` (the rAF nudge in
+          // `onAdd`, or the map's own next render) computes and freezes it once real content has
+          // been measured -- this is still effectively "on open", just a frame later.
+          this.container.style.transform = 'translate(-50%, -100%)';
+          this.container.style.left = `${point.x}px`;
+          this.container.style.top = `${point.y - POPUP_OFFSET_Y_PX}px`;
+          return;
+        }
+
+        this.clampOffset = clampPopupPosition({
+          anchorX: containerPoint.x,
+          anchorY: containerPoint.y,
+          popupW,
+          popupH,
+          mapW: this.mapContainerEl.clientWidth,
+          mapH: this.mapContainerEl.clientHeight,
+          offsetY: POPUP_OFFSET_Y_PX,
+          pad: POPUP_VIEWPORT_PAD_PX,
+        });
       }
 
-      const { dx, flipBelow } = clampPopupPosition({
-        anchorX: containerPoint.x,
-        anchorY: containerPoint.y,
-        popupW,
-        popupH,
-        mapW: this.mapContainerEl.clientWidth,
-        mapH: this.mapContainerEl.clientHeight,
-        offsetY: POPUP_OFFSET_Y_PX,
-        pad: POPUP_VIEWPORT_PAD_PX,
-      });
-
+      const { dx, flipBelow } = this.clampOffset;
       this.container.style.left = `${point.x + dx}px`;
       if (flipBelow) {
         this.container.style.top = `${point.y + POPUP_OFFSET_Y_PX}px`;
@@ -479,6 +502,12 @@ function getPopupOverlayCtor(): PopupOverlayCtor {
     }
 
     updatePosition(position: LatLng): void {
+      // Re-anchoring to a genuinely DIFFERENT marker (not just another map-driven `draw()` call
+      // for the same one, e.g. during a pan) invalidates the frozen clamp -- the next `draw()`
+      // must re-clamp for the new anchor rather than reusing the old marker's offset.
+      if (position.lat !== this.position.lat || position.lng !== this.position.lng) {
+        this.clampOffset = null;
+      }
       this.position = position;
       // Reposition immediately if live; otherwise the next map-driven draw()
       // (or the first draw() after onAdd) picks up the stashed position.

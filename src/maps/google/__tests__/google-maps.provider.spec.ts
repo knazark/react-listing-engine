@@ -174,6 +174,12 @@ let createdOverlays: FakeOverlayView[] = [];
 // Backs `FakeOverlayView.getProjection().fromLatLngToContainerPixel` -- see that method's doc
 // comment. Reset to the default in `beforeEach`.
 let containerPixelPoint: { x: number; y: number } | null = { x: 5, y: 7 };
+// Backs `FakeOverlayView.getProjection().fromLatLngToDivPixel` -- mutable (unlike a plain fixed
+// `{ x: 5, y: 7 }`) so the pan-freeze regression tests below can simulate a map-driven redraw
+// where the SAME lat/lng now projects to a DIFFERENT div-pixel point (exactly what happens on
+// every render frame during a pan: the marker's lat/lng never changes, only its pixel
+// projection does). Reset to the default in `beforeEach`.
+let divPixelPoint: { x: number; y: number } = { x: 5, y: 7 };
 // Flips `FakeOverlayView#setMap` from synchronously invoking `onAdd()`/`draw()` (the default,
 // used by every other test in this file) to deferring them to a microtask -- matching the REAL
 // `google.maps.OverlayView`, whose `onAdd()` fires asynchronously on the next map render cycle,
@@ -225,7 +231,7 @@ class FakeOverlayView {
 
   getProjection() {
     return {
-      fromLatLngToDivPixel: () => ({ x: 5, y: 7 }),
+      fromLatLngToDivPixel: () => divPixelPoint,
       // Viewport-relative pixel coords used by `draw()`'s clamp geometry (see
       // `clampPopupPosition`) -- controllable per test via the mutable `containerPixelPoint`
       // below, independent of the fixed `fromLatLngToDivPixel` value above (real Maps JS
@@ -339,6 +345,7 @@ describe('googleProvider', () => {
     createdOverlays = [];
     deferOverlayOnAdd = false;
     containerPixelPoint = { x: 5, y: 7 };
+    divPixelPoint = { x: 5, y: 7 };
     // Restore the real fn in case the previous test deleted it (the
     // `preventMapHitsAndGesturesFrom`-unavailable guard test below) and clear call history from
     // every other test.
@@ -916,6 +923,89 @@ describe('googleProvider', () => {
         expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
       });
     });
+
+    describe(
+      'clamp freezes after the initial open (regression: the viewport clamp used to recompute on EVERY ' +
+        "draw() -- and Google calls draw() on every map render frame during a pan -- so instead of moving " +
+        "with its marker, the popup stayed permanently pinned to whichever viewport edge it first clamped " +
+        'to, even after the user panned far away from that marker)',
+      () => {
+        function makeMapEl(width: number, height: number): HTMLElement {
+          const el = document.createElement('div');
+          Object.defineProperty(el, 'clientWidth', { value: width, configurable: true });
+          Object.defineProperty(el, 'clientHeight', { value: height, configurable: true });
+          return el;
+        }
+
+        /** Mounts a popup and gives its container a real, measured 200x100 size -- WITHOUT yet
+         * forcing the clamping draw() (unlike `mountClampableOverlay` above), so callers can invoke
+         * `draw()` directly and observe exactly one clamp computation at a time. */
+        async function mountMeasuredOverlay(el: HTMLElement, position: { lat: number; lng: number }) {
+          const provider = googleProvider({ apiKey: 'k' });
+          await provider.mount(el, {});
+          const overlay = provider.mountOverlay(position);
+          Object.defineProperty(overlay.container, 'offsetWidth', { value: 200, configurable: true });
+          Object.defineProperty(overlay.container, 'offsetHeight', { value: 100, configurable: true });
+          // The concrete PopupOverlayView instance underlying this handle -- `draw()` isn't part of
+          // `MapOverlayHandle`'s public surface, so it's reached the same way the fake's own
+          // `setMap` mock reaches it (a cast), letting these tests invoke a map-driven redraw
+          // directly instead of only indirectly through `setPosition`/`updatePosition`.
+          const created = createdOverlays[createdOverlays.length - 1] as unknown as { draw(): void };
+          return { overlay, created };
+        }
+
+        it('a later draw() at the SAME anchor (as a pan produces -- the marker\'s lat/lng never changes, only its pixel projection does) reuses the FROZEN clamp instead of recomputing it, so the popup translates WITH its marker', async () => {
+          containerPixelPoint = { x: 780, y: 300 }; // near the right edge of an 800px-wide map
+          const { overlay, created } = await mountMeasuredOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+          // First measured draw(): clamps and FREEZES the offset. dx = -88 for this geometry (see
+          // the equivalent `clampPopupPosition` unit test) -- left = divPixel.x (5) + (-88).
+          created.draw();
+          expect(overlay.container.style.left).toBe('-83px');
+          expect(overlay.container.style.transform).toBe('translate(-50%, -100%)');
+
+          // Simulate a pan: the anchor's real lat/lng is unchanged, but the map viewport moved, so
+          // BOTH pixel projections for that SAME lat/lng now return different numbers -- exactly
+          // what a real draw() call observes on every render frame during a pan. This calls
+          // draw() directly (mirroring Google's own render-frame-driven call), NOT
+          // setPosition/updatePosition -- nothing re-anchors to a different marker.
+          containerPixelPoint = { x: 400, y: 300 }; // would compute dx=0 (dead center) if re-clamped
+          divPixelPoint = { x: 205, y: 7 }; // the anchor's own pixel position moved 200px right
+
+          created.draw();
+
+          // The clamp must NOT recompute (dx=0 for the new containerPixelPoint) -- it must reuse
+          // the SAME frozen dx (-88) against the NEW divPixel point, so the popup moves with its
+          // marker instead of staying pinned to the edge.
+          expect(overlay.container.style.left).toBe('117px'); // 205 + (-88), frozen dx preserved
+        });
+
+        it('updatePosition to a genuinely DIFFERENT lat/lng resets the frozen clamp so the next draw() re-clamps for the new anchor -- and then re-freezes for THAT anchor', async () => {
+          containerPixelPoint = { x: 780, y: 300 }; // near the right edge
+          const { overlay, created } = await mountMeasuredOverlay(makeMapEl(800, 600), { lat: 3, lng: 4 });
+
+          created.draw(); // clamps + freezes: dx = -88 for the first anchor
+          expect(overlay.container.style.left).toBe('-83px');
+
+          // Re-anchor to a genuinely DIFFERENT marker, near the OPPOSITE edge.
+          containerPixelPoint = { x: 20, y: 300 };
+          overlay.setPosition({ lat: 9, lng: 9 });
+
+          // The reset let the clamp recompute fresh for the new anchor: dx = +88 (shift right),
+          // not the stale -88 left over from the previous marker.
+          expect(overlay.container.style.left).toBe('93px'); // 5 + 88
+
+          // And it is frozen again for THIS anchor -- a later map-driven draw() at the same (new)
+          // position, even with a wildly different pixel projection, keeps the SAME dx rather than
+          // recomputing once more (mirrors the pan-freeze test above, now for the re-anchored case).
+          containerPixelPoint = { x: 400, y: 300 }; // would compute dx=0 if this recomputed
+          divPixelPoint = { x: 55, y: 7 };
+          created.draw();
+
+          expect(overlay.container.style.left).toBe('143px'); // 55 + 88, frozen dx from the re-anchor
+        });
+      },
+    );
   });
 
   describe('container resize hardening', () => {
