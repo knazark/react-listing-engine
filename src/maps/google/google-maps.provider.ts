@@ -773,9 +773,13 @@ function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
 // zoom in rather than a linear slide.
 
 const WORLD_SIZE = 256;
-/** Flight duration envelope (ms): short hops fly fast, cross-country hops get longer. */
+/** Flight duration envelope (ms): short hops fly fast; cross-country hops get
+ *  long enough (~2.4s) for raster tiles to stream in during the glide -- a
+ *  faster long-hop flight outruns tile loading and shows gray mid-flight. */
 const FLY_MIN_MS = 500;
-const FLY_MAX_MS = 1300;
+const FLY_MAX_MS = 2400;
+/** Extra duration (ms) per level of mid-flight zoom-out dip. */
+const FLY_MS_PER_DIP = 475;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
@@ -1106,7 +1110,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
       const dip =
         screenDistance > viewport ? Math.min(FLY_MAX_DIP, Math.log2(screenDistance / viewport) + 1) : 0;
-      const duration = Math.min(FLY_MAX_MS, FLY_MIN_MS + dip * 200);
+      const duration = Math.min(FLY_MAX_MS, FLY_MIN_MS + dip * FLY_MS_PER_DIP);
       const start = performance.now();
 
       const step = (): void => {
