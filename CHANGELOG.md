@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.7.9
+
+### Patch Changes
+
+- Numbered offset pagination for Paged mode: `PageRequest.offset`, `engine.goToPage(index)`, `pagination.pageIndex` in the store, and `ListingPagination` now renders a classic "1 2 3 … N" pager (windowed past 7 pages, aria-complete) in Paged mode with a known total — "Load more" remains the Infinite-mode UI. The styled layout scrolls the list back to top on page jumps. The in-memory testing adapter honors `offset`.
+
 ## 0.7.8
 
 ### Patch Changes
