@@ -362,6 +362,31 @@
 	}
 }
 
+/* Small inline spinner for in-flight async state on a button (e.g. the mobile
+   filters sheet's apply button while a filter-triggered refetch is loading).
+   `currentColor` borders so it inherits whatever text color the host button
+   already sets (e.g. `--rle-primary-contrast` on `.rle-btn--primary`); the
+   transparent top edge is what reads as a moving notch once it spins. Covered
+   by the blanket `prefers-reduced-motion` rule at the end of this file (every
+   `rle-`-prefixed class has its `animation` dropped there), so it degrades to
+   a static ring rather than a separate opt-out here. */
+.rle-spinner {
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	border: 2px solid currentColor;
+	border-top-color: transparent;
+	border-radius: 50%;
+	opacity: 0.85;
+	animation: rle-spin 0.75s linear infinite;
+}
+
+@keyframes rle-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .rle-result-header {
 	font-size: var(--rle-fs-md);
 	color: var(--rle-muted);
@@ -1013,6 +1038,12 @@
 	gap: var(--rle-space);
 	padding: var(--rle-space);
 	border-top: 1px solid var(--rle-border);
+}
+
+/* Pinned so swapping "Show N results" for `.rle-spinner` while
+   `pagination.loading` is true never collapses/reflows the button. */
+.rle-sheet__apply {
+	min-width: 9.5rem;
 }
 
 /* -----------------------------------------------------------------------

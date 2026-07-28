@@ -13,6 +13,7 @@ import {
 	useListingComponents,
 	useListingFilters,
 	useListingResults,
+	useListingState,
 } from '~/react';
 
 import { BottomNav, type IBottomNavAction, type BottomNavView } from './bottom-nav';
@@ -155,7 +156,12 @@ function useScrollEdges<T extends HTMLElement = HTMLDivElement>() {
  *   `engine.filters.clearedParams()` -- see that method's doc for why a reset
  *   round-trips each def's to/fromParams) and "Show N results" (just closes
  *   the sheet -- every filter control already applies live via its own
- *   `onChange`, so there is nothing left to commit).
+ *   `onChange`, so there is nothing left to commit). While `pagination.loading`
+ *   (`useListingState()`) is true -- a filter control's `onChange` just
+ *   triggered a refetch -- the apply button is `disabled` and its label swaps
+ *   for a `.rle-spinner`, so the sheet reads as "updating" instead of letting
+ *   the user close onto a stale count. `.rle-sheet__apply` pins a `min-width`
+ *   so that swap never changes the button's footprint.
  * - Fetches the first page itself on mount (`engine.applyFilters({})`) by
  *   default -- pass `autoFetch={false}`
  *   to opt out and drive the first fetch yourself.
@@ -175,6 +181,7 @@ export function StyledListingLayout({
 	const { Search } = useListingComponents();
 	const results = useListingResults();
 	const { filters, set } = useListingFilters();
+	const { pagination } = useListingState();
 
 	// `engine.map` is the single source of truth for "is a map configured";
 	// the prop only overrides it (see its doc).
@@ -274,8 +281,17 @@ export function StyledListingLayout({
 						<button type="button" className="rle-btn rle-btn--ghost" onClick={handleClearAll}>
 							Clear all
 						</button>
-						<button type="button" className="rle-btn rle-btn--primary" onClick={() => setSheetOpen(false)}>
-							Show {resultCount} results
+						<button
+							type="button"
+							className="rle-btn rle-btn--primary rle-sheet__apply"
+							disabled={pagination.loading}
+							onClick={() => setSheetOpen(false)}
+						>
+							{pagination.loading ? (
+								<span className="rle-spinner" aria-label="Updating results" />
+							) : (
+								`Show ${resultCount} results`
+							)}
 						</button>
 					</>
 				}

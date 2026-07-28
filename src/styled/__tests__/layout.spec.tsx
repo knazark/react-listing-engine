@@ -11,7 +11,7 @@ import {
 	type FilterRegistry,
 	type ListingProviderMod,
 } from '~/core';
-import type { FilterControlProps, LatLng } from '~/interfaces';
+import type { EntityAdapter, FilterControlProps, LatLng } from '~/interfaces';
 import { ListingProvider } from '~/react';
 import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
@@ -60,19 +60,59 @@ const registerQueryFilter = (reg: FilterRegistry<Filters>): void => {
 	});
 };
 
+/**
+ * Wraps the plain `InMemoryEntityAdapter` so a test can hold a query's
+ * `list()` call open (mid "in flight") until it explicitly releases it --
+ * needed to assert on `pagination.loading`-driven UI (the mobile sheet's
+ * apply-button spinner) without a real network delay. `getPoints` passes
+ * straight through -- only `list()` (what `applyFilters`/`loadPage` await) is
+ * gated.
+ */
+function createGatedAdapter(): { adapter: EntityAdapter<ListingRow, Filters>; lockNextQuery(): void; release(): void } {
+	const base = new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng);
+	let gate: Promise<void> | null = null;
+	let releaseGate: (() => void) | null = null;
+
+	const adapter: EntityAdapter<ListingRow, Filters> = {
+		async list(filters, page) {
+			if (gate) await gate;
+			return base.list(filters, page);
+		},
+		async getPoints(filters, bounds) {
+			return base.getPoints(filters, bounds);
+		},
+	};
+
+	return {
+		adapter,
+		lockNextQuery() {
+			gate = new Promise<void>(resolve => {
+				releaseGate = resolve;
+			});
+		},
+		release() {
+			releaseGate?.();
+			gate = null;
+			releaseGate = null;
+		},
+	};
+}
+
 interface IRenderLayoutOptions {
 	/** Custom filter registration; `false` registers none. Default: the `q` `QueryControl` filter. */
 	filters?: ((reg: FilterRegistry<Filters>) => void) | false;
 	layoutProps?: IStyledListingLayoutProps;
+	/** Custom dataset adapter, e.g. `createGatedAdapter().adapter` to control when a query settles. Default: a plain `InMemoryEntityAdapter`. */
+	adapter?: EntityAdapter<ListingRow, Filters>;
 }
 
-function renderLayout({ filters, layoutProps }: IRenderLayoutOptions = {}) {
+function renderLayout({ filters, layoutProps, adapter }: IRenderLayoutOptions = {}) {
 	const map = new FakeMapProvider();
 
 	const mods: ListingProviderMod<Filters>[] = [
 		withDataset<ListingRow, Filters>({
 			id: 'p',
-			adapter: new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
+			adapter: adapter ?? new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng),
 			marker: { iconUrl: () => '' },
 		}),
 		withMap<Filters>(map),
@@ -242,5 +282,57 @@ describe('StyledListingLayout', () => {
 		await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
 
 		expect(container.querySelector('.pointer-events-none')).toBeNull();
+	});
+
+	describe('mobile filters sheet apply button', () => {
+		it('shows the "Show N results" label, enabled, while not loading', async () => {
+			renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+
+			const applyButton = screen.getByRole('button', { name: /Show 2 results/ });
+			expect(applyButton).not.toBeDisabled();
+			expect(within(applyButton).queryByLabelText('Updating results')).not.toBeInTheDocument();
+		});
+
+		it('disables the button and swaps the label for a spinner while a filter-triggered refetch is in flight, then restores it once settled', async () => {
+			const gated = createGatedAdapter();
+			renderLayout({ adapter: gated.adapter });
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const applyButton = screen.getByRole('button', { name: /Show 2 results/ });
+
+			// Gate the NEXT query, then trigger one by editing the (only) filter
+			// control -- debounceMs is 0, so `applyFilters` flips `pagination.loading`
+			// true synchronously, before awaiting the gated `list()` call.
+			gated.lockNextQuery();
+			fireEvent.change(screen.getAllByLabelText('Query')[0], { target: { value: 'sunny' } });
+
+			expect(applyButton).toBeDisabled();
+			expect(within(applyButton).getByLabelText('Updating results')).toHaveClass('rle-spinner');
+			expect(within(applyButton).queryByText(/Show \d+ results/)).not.toBeInTheDocument();
+			// The sheet itself must stay open/interactive while loading -- only the
+			// apply button reflects the in-flight refetch.
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+			gated.release();
+
+			await waitFor(() => expect(applyButton).not.toBeDisabled());
+			expect(within(applyButton).getByText(/Show 1 results/)).toBeInTheDocument();
+			expect(within(applyButton).queryByLabelText('Updating results')).not.toBeInTheDocument();
+		});
+
+		it('still closes the sheet when clicked (unchanged click behavior)', async () => {
+			renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+			fireEvent.click(screen.getByRole('button', { name: /Show 2 results/ }));
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
 	});
 });
