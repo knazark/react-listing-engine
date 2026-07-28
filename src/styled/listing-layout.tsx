@@ -20,7 +20,24 @@ import { BottomNav, type IBottomNavAction, type BottomNavView } from './bottom-n
 import { BottomSheet } from './bottom-sheet';
 import { MobileHeader } from './mobile-header';
 
-export interface IStyledListingLayoutProps {
+/**
+ * Handed to `IStyledListingLayoutProps.mobileSheetFooter` -- see that prop's
+ * doc comment for why this render-prop override exists.
+ */
+export interface MobileSheetFooterContext<TFilters> {
+	/** The sheet's current DRAFT filters -- buffered edits not yet applied to the engine (see the class doc's `BottomSheet` section). */
+	draft: TFilters;
+	/** Commits `draft` to the engine and closes the sheet once the resulting refetch settles -- identical to what the default "Show N results" button does (`handleApplyDraft`). */
+	apply: () => void;
+	/** Resets the DRAFT (not the applied filters) via `engine.filters.clearedParams()` -- identical to what the default "Clear all" button does (`handleClearAll`). */
+	clear: () => void;
+	/** The currently APPLIED result count -- NOT a live preview of `draft` (see `mobileSheetFooter`'s doc comment for why). */
+	resultCount: number;
+	/** `pagination.loading` -- true while a commit-triggered (or any other) refetch is in flight. */
+	loading: boolean;
+}
+
+export interface IStyledListingLayoutProps<TFilters = unknown> {
 	/**
 	 * Optional header search box, LIBRARY-wired: name the `TFilters` field it
 	 * drives via
@@ -51,6 +68,21 @@ export interface IStyledListingLayoutProps {
 	mapZoom?: number;
 	/** Forwarded verbatim to `<ListingMap mapControls={mapControls} />` -- see that prop's doc comment. */
 	mapControls?: ReactNode;
+	/**
+	 * Render-prop override for the mobile filters sheet's footer -- when
+	 * given, replaces the default "Clear all" + "Show N results" buttons
+	 * entirely, called with the sheet's current draft plus its
+	 * commit/clear/count/loading state (see `MobileSheetFooterContext`'s own
+	 * field docs). Exists because the default footer's result count is always
+	 * the currently APPLIED count (see the class doc's `BottomSheet` section)
+	 * -- it never previews what applying `draft` WOULD return, since that
+	 * requires a query only the consumer's own data source can run (e.g. a
+	 * live-count endpoint keyed off the draft). A consumer with such a source
+	 * renders its own footer here, driving `apply`/`clear` exactly like the
+	 * default buttons do. Omitted (the default), the built-in footer renders
+	 * unchanged.
+	 */
+	mobileSheetFooter?: (ctx: MobileSheetFooterContext<TFilters>) => ReactNode;
 	className?: string;
 }
 
@@ -192,12 +224,16 @@ function shallowEqualFilters(a: unknown, b: unknown): boolean {
  *   user close onto a stale count. `.rle-sheet__apply` pins a `min-width` so
  *   that swap never changes the button's footprint. The result count itself
  *   (`Show N results`) always reflects the currently APPLIED results, not a
- *   live preview of the draft -- it only changes once a commit lands.
+ *   live preview of the draft -- it only changes once a commit lands. A
+ *   consumer needing a live preview (e.g. its own count endpoint keyed off
+ *   the draft) can replace this whole footer via the `mobileSheetFooter`
+ *   render prop -- see `IStyledListingLayoutProps.mobileSheetFooter`'s doc
+ *   comment; omitted (the default), the footer above renders unchanged.
  * - Fetches the first page itself on mount (`engine.applyFilters({})`) by
  *   default -- pass `autoFetch={false}`
  *   to opt out and drive the first fetch yourself.
  */
-export function StyledListingLayout({
+export function StyledListingLayout<TFilters = unknown>({
 	search,
 	toolbarEnd,
 	mobileAction,
@@ -206,8 +242,9 @@ export function StyledListingLayout({
 	mapCenter,
 	mapZoom,
 	mapControls,
+	mobileSheetFooter,
 	className,
-}: IStyledListingLayoutProps) {
+}: IStyledListingLayoutProps<TFilters>) {
 	const engine = useListing();
 	const { Search } = useListingComponents();
 	const results = useListingResults();
@@ -367,23 +404,37 @@ export function StyledListingLayout({
 				open={sheetOpen}
 				onOpenChange={setSheetOpen}
 				footer={
-					<>
-						<button type="button" className="rle-btn rle-btn--ghost" onClick={handleClearAll}>
-							Clear all
-						</button>
-						<button
-							type="button"
-							className="rle-btn rle-btn--primary rle-sheet__apply"
-							disabled={pagination.loading}
-							onClick={handleApplyDraft}
-						>
-							{pagination.loading ? (
-								<span className="rle-spinner" aria-label="Updating results" />
-							) : (
-								`Show ${resultCount} results`
-							)}
-						</button>
-					</>
+					mobileSheetFooter ? (
+						mobileSheetFooter({
+							// `draft` is buffered as a plain `Record<string, unknown>` internally
+							// (see its declaration above) -- same unchecked cast-through-`unknown`
+							// pattern as `FiltersChangeEmitter`'s own `TFilters` cast, since this
+							// component never itself knows the concrete `TFilters` shape.
+							draft: draft as unknown as TFilters,
+							apply: handleApplyDraft,
+							clear: handleClearAll,
+							resultCount,
+							loading: pagination.loading,
+						})
+					) : (
+						<>
+							<button type="button" className="rle-btn rle-btn--ghost" onClick={handleClearAll}>
+								Clear all
+							</button>
+							<button
+								type="button"
+								className="rle-btn rle-btn--primary rle-sheet__apply"
+								disabled={pagination.loading}
+								onClick={handleApplyDraft}
+							>
+								{pagination.loading ? (
+									<span className="rle-spinner" aria-label="Updating results" />
+								) : (
+									`Show ${resultCount} results`
+								)}
+							</button>
+						</>
+					)
 				}
 			>
 				<ListingFilters

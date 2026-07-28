@@ -15,7 +15,12 @@ import type { EntityAdapter, FilterControlProps, LatLng } from '~/interfaces';
 import { ListingProvider, useListing } from '~/react';
 import { FakeMapProvider, InMemoryEntityAdapter } from '~/testing';
 
-import { StyledComponentsProviderWithDefaults, StyledListingLayout, type IStyledListingLayoutProps } from '..';
+import {
+	StyledComponentsProviderWithDefaults,
+	StyledListingLayout,
+	type IStyledListingLayoutProps,
+	type MobileSheetFooterContext,
+} from '..';
 
 afterEach(() => {
 	cleanup();
@@ -101,7 +106,7 @@ function createGatedAdapter(): { adapter: EntityAdapter<ListingRow, Filters>; lo
 interface IRenderLayoutOptions {
 	/** Custom filter registration; `false` registers none. Default: the `q` `QueryControl` filter. */
 	filters?: ((reg: FilterRegistry<Filters>) => void) | false;
-	layoutProps?: IStyledListingLayoutProps;
+	layoutProps?: IStyledListingLayoutProps<Filters>;
 	/** Custom dataset adapter, e.g. `createGatedAdapter().adapter` to control when a query settles. Default: a plain `InMemoryEntityAdapter`. */
 	adapter?: EntityAdapter<ListingRow, Filters>;
 }
@@ -140,7 +145,7 @@ function renderLayout({ filters, layoutProps, adapter }: IRenderLayoutOptions = 
 	const view = render(
 		<ListingProvider<ListingRow, Filters> {...composed}>
 			<StyledComponentsProviderWithDefaults>
-				<StyledListingLayout {...layoutProps} />
+				<StyledListingLayout<Filters> {...layoutProps} />
 			</StyledComponentsProviderWithDefaults>
 			<EngineProbe
 				onEngine={e => {
@@ -442,6 +447,127 @@ describe('StyledListingLayout', () => {
 
 			await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
 			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+		});
+	});
+
+	describe('mobileSheetFooter render-prop override', () => {
+		// Renders the ctx's draft + resultCount for assertions, plus its own
+		// "My Apply"/"My Clear" buttons wired straight to `ctx.apply`/`ctx.clear`
+		// -- proving a consumer footer can drive the exact same commit/reset
+		// behavior as the built-in buttons using only what the context hands it.
+		const customFooter = (ctx: MobileSheetFooterContext<Filters>) => (
+			<div data-testid="custom-footer">
+				<span data-testid="custom-draft-q">{ctx.draft.q ?? ''}</span>
+				<span data-testid="custom-result-count">{ctx.resultCount}</span>
+				<button type="button" onClick={ctx.clear}>
+					My Clear
+				</button>
+				<button type="button" disabled={ctx.loading} onClick={ctx.apply}>
+					My Apply
+				</button>
+			</div>
+		);
+
+		it('renders the provided footer instead of the default buttons, passing the current draft and resultCount', async () => {
+			renderLayout({ layoutProps: { mobileSheetFooter: customFooter } });
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+
+			expect(within(dialog).getByTestId('custom-footer')).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: 'Clear all' })).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /Show \d+ results/ })).not.toBeInTheDocument();
+			expect(within(dialog).getByTestId('custom-result-count')).toHaveTextContent('2');
+
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+			// The custom footer reflects the SAME draft the default footer would --
+			// still buffered, not yet applied to the engine.
+			expect(within(dialog).getByTestId('custom-draft-q')).toHaveTextContent('cozy');
+			expect(screen.getByText('Sunny Loft')).toBeInTheDocument();
+		});
+
+		it('falls back to the default footer when mobileSheetFooter is not provided', async () => {
+			renderLayout();
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+
+			expect(screen.getByRole('button', { name: 'Clear all' })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /Show \d+ results/ })).toBeInTheDocument();
+			expect(screen.queryByTestId('custom-footer')).not.toBeInTheDocument();
+		});
+
+		it('ctx.apply commits the draft to the engine and closes the sheet, same as the default apply button', async () => {
+			renderLayout({ layoutProps: { mobileSheetFooter: customFooter } });
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+
+			fireEvent.click(within(dialog).getByRole('button', { name: 'My Apply' }));
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+			await waitFor(() => expect(screen.queryByText('Sunny Loft')).not.toBeInTheDocument());
+			expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
+		});
+
+		it('ctx.clear resets the draft, deferred until ctx.apply commits it, same as the default Clear all button', async () => {
+			renderLayout({
+				layoutProps: { mobileSheetFooter: customFooter },
+				filters: reg =>
+					reg.add<string>({
+						// Registry key deliberately != the 'q' STATE field it maps to,
+						// same setup as the "Clear all" test above.
+						key: 'bedrooms',
+						order: 0,
+						render: QueryControl,
+						toParams: value => ({ q: value || undefined }),
+						fromParams: filters => filters.q ?? '',
+					}),
+			});
+
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+			fireEvent.change(screen.getAllByLabelText('Query')[0], { target: { value: 'sunny' } });
+			await waitFor(() => expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+
+			fireEvent.click(within(dialog).getByRole('button', { name: 'My Clear' }));
+			expect(within(dialog).getByTestId('custom-draft-q')).toHaveTextContent('');
+			// Still deferred -- applied results (and the count) stay filtered
+			// until ctx.apply commits it.
+			expect(screen.queryByText('Cozy Studio')).not.toBeInTheDocument();
+
+			fireEvent.click(within(dialog).getByRole('button', { name: 'My Apply' }));
+			await waitFor(() => expect(screen.getByText('Cozy Studio')).toBeInTheDocument());
+		});
+
+		it('ctx.loading reflects pagination.loading while a commit refetch is in flight, then clears once it settles', async () => {
+			const gated = createGatedAdapter();
+			renderLayout({ adapter: gated.adapter, layoutProps: { mobileSheetFooter: customFooter } });
+			await waitFor(() => expect(screen.getByText('Sunny Loft')).toBeInTheDocument());
+
+			fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+			const dialog = screen.getByRole('dialog');
+			const applyButton = within(dialog).getByRole('button', { name: 'My Apply' });
+			expect(applyButton).not.toBeDisabled();
+
+			gated.lockNextQuery();
+			fireEvent.change(within(dialog).getByLabelText('Query'), { target: { value: 'cozy' } });
+			fireEvent.click(applyButton);
+
+			// The sheet stays open/interactive while the commit's refetch is in
+			// flight, and ctx.loading (routed to `disabled`) reflects it.
+			expect(screen.getByRole('dialog')).toBeInTheDocument();
+			expect(applyButton).toBeDisabled();
+
+			gated.release();
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+			expect(screen.getByText('Cozy Studio')).toBeInTheDocument();
 		});
 	});
 });

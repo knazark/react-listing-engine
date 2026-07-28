@@ -14,3 +14,10 @@ export * from './react';
 // and intentional rather than re-exporting an entire adapter wholesale.
 export { ListingApp } from './styled/listing-app';
 export type { ListingAppProps } from './styled/listing-app';
+// `MobileSheetFooterContext` is the type `ListingAppProps.mobileSheetFooter`
+// hands back to a consumer's render prop -- exported here (unlike the rest of
+// `./styled`) so a consumer typing that callback doesn't need the
+// `react-listing-engine/styled` subpath just for this one type, same
+// reasoning as `FilterRegistry` (used by `ListingAppProps.filters`) already
+// being reachable via `export * from './core'` above.
+export type { MobileSheetFooterContext } from './styled/listing-layout';

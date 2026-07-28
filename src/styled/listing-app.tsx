@@ -18,7 +18,7 @@ import { ListingComponentsProvider, ListingProvider, useListingEvent, type IList
 
 import type { IBottomNavAction } from './bottom-nav';
 import { styledDefaultComponents } from './default-components';
-import { StyledListingLayout, type IStyledListingLayoutProps } from './listing-layout';
+import { StyledListingLayout, type IStyledListingLayoutProps, type MobileSheetFooterContext } from './listing-layout';
 
 /**
  * Two-shape `map` prop: pass a ready `MapProvider`, or the `{ apiKey, mapId? }`
@@ -107,6 +107,8 @@ export interface ListingAppProps<TFilters> {
 	 * drops the map region entirely in that case).
 	 */
 	mapControls?: ReactNode;
+	/** Forwarded verbatim to `StyledListingLayout`'s `mobileSheetFooter` -- see that prop's doc comment. */
+	mobileSheetFooter?: (ctx: MobileSheetFooterContext<TFilters>) => ReactNode;
 	config?: Partial<IListingConfigOptions>;
 	autoFetch?: boolean;
 	className?: string;
@@ -241,6 +243,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		search,
 		toolbarEnd,
 		mapControls,
+		mobileSheetFooter,
 		config,
 		autoFetch,
 		className,
@@ -271,7 +274,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		<ListingProvider<TEntity, TFilters> {...composed}>
 			{onFiltersChange && <FiltersChangeEmitter<TFilters> onFiltersChange={onFiltersChange} />}
 			<ListingComponentsProvider {...mergedComponents}>
-				<StyledListingLayout
+				<StyledListingLayout<TFilters>
 					className={className}
 					search={search}
 					toolbarEnd={toolbarEnd}
@@ -280,6 +283,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 					mapControls={mapControls}
+					mobileSheetFooter={mobileSheetFooter}
 				/>
 			</ListingComponentsProvider>
 		</ListingProvider>

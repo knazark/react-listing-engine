@@ -14,5 +14,9 @@ export { StyledComponentsProviderWithDefaults } from './components-provider-with
 export { styledDefaultComponents } from './default-components';
 export { BottomNav, type BottomNavView, type IBottomNavAction, type IBottomNavProps } from './bottom-nav';
 export { BottomSheet, type IBottomSheetProps } from './bottom-sheet';
-export { StyledListingLayout, type IStyledListingLayoutProps } from './listing-layout';
+export {
+	StyledListingLayout,
+	type IStyledListingLayoutProps,
+	type MobileSheetFooterContext,
+} from './listing-layout';
 export { ListingApp, type ListingAppMapProp, type ListingAppProps } from './listing-app';
