@@ -805,10 +805,12 @@ const FLY_MAX_VIEWPORTS = 4;
 const FLY_FAR_OVERVIEW_LEVELS = 5;
 /** The apex never zooms out further than this (a continent-scale floor). */
 const FLY_APEX_MIN_ZOOM = 3;
-/** Duration of the far-hop zoom-out leg (origin -> apex). */
-const FLY_FAR_ZOOM_OUT_MS = 800;
+/** Duration of the far-hop zoom-out leg (origin -> apex). Matched to the
+ *  reference search map's measured curve (~0.6s out, ~0.55s apex dwell,
+ *  ~1.4s in). */
+const FLY_FAR_ZOOM_OUT_MS = 650;
 /** Duration of the far-hop zoom-in leg (apex -> target). */
-const FLY_FAR_ZOOM_IN_MS = 1300;
+const FLY_FAR_ZOOM_IN_MS = 1400;
 /** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway. */
 const FLY_TILE_WAIT_MAX_MS = 600;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */

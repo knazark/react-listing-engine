@@ -1,6 +1,6 @@
 {
   "name": "react-listing-engine",
-  "version": "0.7.17",
+  "version": "0.7.18",
   "license": "MIT",
   "description": "Headless, composable listing engine for React: filterable list + Google-Maps multi-layer map, with pluggable data adapters, a filter/dataset registry, injectable components, and a Tailwind-free styled adapter.",
   "funding": [
