@@ -678,7 +678,7 @@ describe('googleProvider', () => {
       const cutCenter = map.center as { lat: number; lng: number };
       expect(cutCenter.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
       const apexZoom = map.zoom as number;
-      expect(apexZoom).toBeLessThan(5); // region-scale overview
+      expect(apexZoom).toBeLessThanOrEqual(5); // region-scale overview (clamped at the apex floor)
       expect(rafQueue.size).toBe(0);
 
       // Tiles land -> phase 3, pure zoom-in over the destination.
@@ -697,29 +697,35 @@ describe('googleProvider', () => {
       expect(fitBoundsCalls).toEqual([]); // fully driven, never delegates
     });
 
-    it('VECTOR far destination: one continuous arc -- no cut, no tile wait, deep mid-flight dip, exact target camera', async () => {
+    it('VECTOR far destination: three chained beats (zoom-out, apex pan, zoom-in) with no cut and no tile wait', async () => {
       const { provider, handle, map } = await mountFlyable();
       map.renderingType = 'VECTOR';
 
       provider.fitBounds(handle, CHICAGO, { animate: true });
 
       expect(fitBoundsCalls).toEqual([]);
-      expect(rafQueue.size).toBe(1); // single drive, scheduled immediately
+      expect(rafQueue.size).toBe(1); // beat 1 scheduled immediately
 
-      const zooms: number[] = [];
-      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      const samples: Array<{ zoom: number; lng: number }> = [];
+      for (let i = 0; i < 45 && rafQueue.size > 0; i++) {
         pumpFrame(100);
-        zooms.push(map.zoom as number);
+        samples.push({ zoom: map.zoom as number, lng: (map.center as { lng: number }).lng });
       }
 
-      // Continuous arc: dips to a region-scale apex mid-flight...
-      expect(Math.min(...zooms)).toBeLessThan(6);
-      // ...and lands exactly on the camera fitting Chicago, center included --
-      // the pan happened inside the same move (no cut ever set the center).
+      // Crests at the region-scale apex floor (never abstract continental zooms)...
+      const minZoom = Math.min(...samples.map(sample => sample.zoom));
+      expect(minZoom).toBeGreaterThan(4.4);
+      expect(minZoom).toBeLessThan(5.6);
+      // ...the pan beat happens AT the apex: while at apex zoom the center
+      // sweeps most of the way from SF (-122) toward Chicago (-87)...
+      const apexLngs = samples.filter(sample => sample.zoom < 5.6).map(sample => sample.lng);
+      expect(Math.max(...apexLngs) - Math.min(...apexLngs)).toBeGreaterThan(20);
+      // ...and it lands exactly on the camera fitting Chicago -- the whole
+      // path was driven, no cut ever set the center.
       const center = map.center as { lat: number; lng: number };
       expect(center.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 2);
-      expect(zooms[zooms.length - 1]).toBeGreaterThan(7);
-      // No tile-wait phase: 'tilesloaded' never schedules anything extra.
+      expect(samples[samples.length - 1].zoom).toBeGreaterThan(7);
+      // No tile-wait phase on vector: 'tilesloaded' schedules nothing extra.
       map.trigger('tilesloaded');
       expect(rafQueue.size).toBe(0);
     });

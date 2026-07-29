@@ -803,22 +803,24 @@ const FLY_MAX_VIEWPORTS = 4;
 /** How many levels above the target zoom the far-hop apex (overview) sits --
  *  a region-scale view: few tiles, near-instant render. */
 const FLY_FAR_OVERVIEW_LEVELS = 5;
-/** The apex never zooms out further than this (a continent-scale floor). */
-const FLY_APEX_MIN_ZOOM = 3;
-/** Duration of the far-hop zoom-out leg (origin -> apex). Matched to the
- *  reference search map's measured curve (~0.6s out, ~0.55s apex dwell,
- *  ~1.4s in). */
-const FLY_FAR_ZOOM_OUT_MS = 650;
-/** Duration of the far-hop zoom-in leg (apex -> target). */
-const FLY_FAR_ZOOM_IN_MS = 1400;
-/** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway. */
+/** The apex never zooms out further than this (a region-scale floor). */
+const FLY_APEX_MIN_ZOOM = 5;
+/** Far-hop beat durations, matched frame-by-frame to the reference search
+ *  map's transition: a SHORT zoom-out over the origin, a SWIFT pan at the
+ *  apex, and a LONG, gentle zoom-in over the destination. */
+const FLY_FAR_ZOOM_OUT_MS = 700;
+const FLY_APEX_PAN_MS = 450;
+const FLY_FAR_ZOOM_IN_MS = 1500;
+/** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway (raster V-cut only). */
 const FLY_TILE_WAIT_MAX_MS = 600;
-/** Duration ceiling for the VECTOR far-hop continuous arc (see `fitBounds`). */
-const FLY_FAR_MAX_MS = 2400;
-/** On the vector arc, the apex is the zoom where the remaining pan spans about
- *  this fraction of the viewport -- deep enough that the traverse reads as a
- *  glide over an overview, not a slide across streets. */
-const FLY_APEX_PAN_FRACTION = 0.75;
+/** How far below the LOWER endpoint zoom the vector apex sits -- in the
+ *  reference, city-to-city hops (z~12) crest at ~z6.5: regions still
+ *  readable, never abstract continental bands. */
+const FLY_APEX_DROP = 5.5;
+/** Fraction of the total pan absorbed by EACH of the zoom-out and zoom-in
+ *  beats (the origin visibly drifts off-center while shrinking); the
+ *  remaining ~70% happens in the fast apex pan. */
+const FLY_PAN_EDGE_FRACTION = 0.15;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
@@ -1191,21 +1193,39 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
 
       if (screenDistance > viewport * FLY_MAX_VIEWPORTS) {
         // Far hop. On a VECTOR map (WebGL -- geometry scales live, no tile
-        // refetch churn), fly ONE continuous camera arc: pan and zoom in a
-        // single eased move whose mid-flight dip reaches an apex where the
-        // remaining pan spans well under a viewport -- the reference search
-        // map's seamless zoom-out-glide-zoom-in, with no cut anywhere.
+        // refetch churn), fly the reference search map's three-beat sequence,
+        // matched to its transition frame-by-frame: a short zoom-out over the
+        // ORIGIN (drifting slightly toward the destination as it shrinks), a
+        // swift eased pan at a still-readable apex (~70% of the traverse in
+        // ~0.45s), then a long, gentle zoom-in over the DESTINATION. All one
+        // continuous camera path -- no cut anywhere.
         const worldDistance = Math.hypot(to.x - from.x, to.y - from.y);
         const renderingType =
           typeof raw.map.getRenderingType === 'function' ? raw.map.getRenderingType() : undefined;
         if (renderingType === 'VECTOR' && worldDistance > 0) {
-          const apexZoom = Math.max(
-            Math.log2((viewport * FLY_APEX_PAN_FRACTION) / worldDistance),
-            FLY_APEX_MIN_ZOOM,
-          );
-          const arcDip = Math.max(0, (from.zoom + to.zoom) / 2 - apexZoom);
-          const arcDuration = Math.min(FLY_FAR_MAX_MS, FLY_MIN_MS + arcDip * FLY_MS_PER_DIP);
-          raw.cancelFlight = driveCamera(raw, from, to, arcDuration, arcDip);
+          const lowZoom = Math.min(from.zoom, to.zoom);
+          const apexZoom = Math.min(Math.max(lowZoom - FLY_APEX_DROP, FLY_APEX_MIN_ZOOM), lowZoom);
+          const at = (fraction: number): WorldPoint => ({
+            x: from.x + (to.x - from.x) * fraction,
+            y: from.y + (to.y - from.y) * fraction,
+          });
+          const panStart = { ...at(FLY_PAN_EDGE_FRACTION), zoom: apexZoom };
+          const panEnd = { ...at(1 - FLY_PAN_EDGE_FRACTION), zoom: apexZoom };
+          const zoomInBeat = (): void => {
+            raw.cancelFlight = driveCamera(raw, panEnd, to, FLY_FAR_ZOOM_IN_MS, 0);
+          };
+          const panBeat = (start: WorldPoint & { zoom: number }): void => {
+            raw.cancelFlight = driveCamera(raw, start, panEnd, FLY_APEX_PAN_MS, 0, zoomInBeat);
+          };
+          if (from.zoom - apexZoom < 0.3) {
+            // Already at/near the apex altitude (e.g. a whole-country view):
+            // nothing to zoom out of -- start with the pan beat directly.
+            panBeat({ ...at(0), zoom: from.zoom });
+          } else {
+            raw.cancelFlight = driveCamera(raw, from, panStart, FLY_FAR_ZOOM_OUT_MS, 0, () =>
+              panBeat(panStart),
+            );
+          }
           return;
         }
 
