@@ -105,12 +105,14 @@ export interface GoogleMapsProviderConfig {
    */
   styles?: google.maps.MapTypeStyle[];
   /**
-   * Forces the NO-`mapId` OverlayView marker mode WITHOUT legacy JSON `styles`.
-   * The use case is a Map-ID-free VECTOR map (`mapOptions.renderingType:
-   * 'VECTOR'`): vector rendering ignores JSON `styles`, and
+   * Forces the OverlayView marker mode WITHOUT legacy JSON `styles`. The use
+   * case is a VECTOR map (`mapOptions.renderingType: 'VECTOR'`, or a
+   * vector-configured `mapId`): vector rendering ignores JSON `styles`, and
    * `AdvancedMarkerElement` requires a Map ID -- this flag keeps markers as
-   * OverlayView HTML overlays (which work on both renderers) while leaving
-   * the map unstyled. Implied by `styles`; `mapId` is ignored while set.
+   * OverlayView HTML overlays (which work on both renderers). Implied by
+   * `styles`. A supplied `mapId` is still passed to the map (for cloud
+   * styling / rendering config); `styles` is dropped whenever `mapId` is set
+   * (Google ignores the combination).
    */
   overlayMarkers?: boolean;
 }
@@ -782,47 +784,27 @@ function boundsFromGoogle(bounds: GoogleLatLngBounds): Bounds {
 // zoom in rather than a linear slide.
 
 const WORLD_SIZE = 256;
-/** Flight duration envelope (ms), matched against the reference search UX:
- *  in-view moves settle in ~0.45s, and even a cross-country hop stays under
- *  ~1.5s -- a quick zoom-out, a beat at the overview (any un-fetched tiles
- *  gray out only for that beat, which the reference map exhibits too), and a
- *  zoom-in. A slower, cinematic glide reads as lag, not travel. */
-const FLY_MIN_MS = 450;
-const FLY_MAX_MS = 1500;
-/** Extra duration (ms) per level of mid-flight zoom-out dip. */
-const FLY_MS_PER_DIP = 260;
 /**
- * Beyond this pan distance (in viewports, measured at the coarser endpoint
- * zoom) the "flight" is not flown -- the camera CUTS to a zoomed-out overview
- * of the destination and animates only the zoom-in (see `fitBounds`). On a
- * raster map every animated frame invalidates the tile pipeline, so a
- * cross-country glide renders as seconds of blank gray. This mirrors the
- * reference search UX: nearby moves animate, far destinations cut-then-zoom.
+ * Animated `fitBounds` flies the van Wijk & Nuij "smooth and efficient
+ * zooming and panning" path (the same algorithm behind MapLibre's `flyTo`
+ * and the reference search map's transition), driven per-frame on the map's
+ * camera. Vector (WebGL) rendering only -- on raster, every animated frame
+ * invalidates the tile pipeline and renders seconds of blank gray, so
+ * non-vector maps get an instant `fitBounds` jump instead.
  */
-const FLY_MAX_VIEWPORTS = 4;
-/** How many levels above the target zoom the far-hop apex (overview) sits --
- *  a region-scale view: few tiles, near-instant render. */
-const FLY_FAR_OVERVIEW_LEVELS = 5;
-/** The apex never zooms out further than this (a region-scale floor). */
-const FLY_APEX_MIN_ZOOM = 5;
-/** Far-hop beat durations, matched frame-by-frame to the reference search
- *  map's transition: a SHORT zoom-out over the origin, a SWIFT pan at the
- *  apex, and a LONG, gentle zoom-in over the destination. */
-const FLY_FAR_ZOOM_OUT_MS = 700;
-const FLY_APEX_PAN_MS = 450;
-const FLY_FAR_ZOOM_IN_MS = 1500;
-/** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway (raster V-cut only). */
-const FLY_TILE_WAIT_MAX_MS = 600;
-/** How far below the LOWER endpoint zoom the vector apex sits -- in the
- *  reference, city-to-city hops (z~12) crest at ~z6.5: regions still
- *  readable, never abstract continental bands. */
-const FLY_APEX_DROP = 5.5;
-/** Fraction of the total pan absorbed by EACH of the zoom-out and zoom-in
- *  beats (the origin visibly drifts off-center while shrinking); the
- *  remaining ~70% happens in the fast apex pan. */
-const FLY_PAN_EDGE_FRACTION = 0.15;
-/** Max extra zoom-out (levels) at the midpoint of the longest flights. */
-const FLY_MAX_DIP = 4;
+/** Path curvature (van Wijk's rho): higher climbs to a wider apex. 1.42 is
+ *  the paper's user-study optimum; slightly lower keeps regions readable at
+ *  the crest of cross-country hops (the reference crests near z6.5). */
+const FLY_RHO = 1.2;
+/** Wall-clock per unit of van Wijk path length S. */
+const FLY_MS_PER_S = 320;
+/** Flight duration clamp (ms). */
+const FLY_MIN_MS = 450;
+const FLY_MAX_MS = 2600;
+/** Class toggled on the map container while a flight is in progress --
+ *  consumers can hook it to fade markers during the traverse (the reference
+ *  UX lets pills settle in on landing). */
+const FLYING_CLASS = 'rle-map-flying';
 
 interface WorldPoint {
   x: number;
@@ -862,44 +844,115 @@ function cameraForBounds(b: Bounds, width: number, height: number): { center: La
   };
 }
 
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+/**
+ * The van Wijk & Nuij (2003) optimal zoom-pan path between two cameras, in
+ * zoom-0 Mercator world coordinates. `w` is the viewport extent in world
+ * units (viewport / 2^zoom); the returned interpolator maps progress
+ * `t in [0,1]` to a camera, and `S` is the path length (drives duration).
+ * Same formulation as d3-interpolate's `interpolateZoom` / MapLibre `flyTo`.
+ */
+function vanWijkPath(
+  from: WorldPoint & { zoom: number },
+  to: WorldPoint & { zoom: number },
+  viewport: number,
+): { at: (t: number) => WorldPoint & { zoom: number }; S: number } {
+  const w0 = viewport / 2 ** from.zoom;
+  const w1 = viewport / 2 ** to.zoom;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d2 = dx * dx + dy * dy;
+  const rho = FLY_RHO;
+  const rho2 = rho * rho;
+
+  // Degenerate: same (or nearly same) center -- pure exponential zoom.
+  if (d2 < 1e-12) {
+    const S = Math.abs(Math.log(w1 / w0)) / rho;
+    const k = w1 < w0 ? -1 : 1;
+    return {
+      S,
+      at: t => ({ x: from.x, y: from.y, zoom: Math.log2(viewport / (w0 * Math.exp(k * rho * (t * S)))) }),
+    };
+  }
+
+  const d = Math.sqrt(d2);
+  const b0 = (w1 * w1 - w0 * w0 + rho2 * rho2 * d2) / (2 * w0 * rho2 * d);
+  const b1 = (w1 * w1 - w0 * w0 - rho2 * rho2 * d2) / (2 * w1 * rho2 * d);
+  const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0);
+  const r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
+  const S = (r1 - r0) / rho;
+  const coshR0 = Math.cosh(r0);
+  return {
+    S,
+    at: t => {
+      const rs = rho * (t * S) + r0;
+      // `u` runs 0..1 along the from->to segment; `w` is the viewport extent.
+      const u = (w0 / (rho2 * d)) * (coshR0 * Math.tanh(rs) - Math.sinh(r0));
+      const w = (w0 * coshR0) / Math.cosh(rs);
+      return { x: from.x + u * dx, y: from.y + u * dy, zoom: Math.log2(viewport / w) };
+    },
+  };
+}
+
+/** MapLibre's default flyTo easing -- ease-out quad, which biases wall-time
+ *  toward the landing (the reference's long, gentle zoom-in tail). */
+function easeOutQuad(t: number): number {
+  return t * (2 - t);
 }
 
 /**
- * Drives the camera from `from` to `to` (world coords + fractional zoom)
- * over `duration` ms on a `requestAnimationFrame` loop, with an optional
- * mid-flight zoom-out `dip`. Returns a cancel function; on natural
- * completion it clears `raw.cancelFlight` itself.
+ * Flies the camera along `path` over `duration` ms on a
+ * `requestAnimationFrame` loop. Each frame lands as ONE camera update
+ * (`moveCamera` when available -- the documented batch API -- otherwise
+ * setZoom+setCenter). Toggles `FLYING_CLASS` on the container for the
+ * flight's duration and cancels on any user gesture (pointerdown/wheel), so
+ * a flight never fights the user for the camera. Returns a cancel function;
+ * on natural completion it clears `raw.cancelFlight` itself.
  */
 function driveCamera(
   raw: GoogleMapRaw,
-  from: WorldPoint & { zoom: number },
-  to: WorldPoint & { zoom: number },
+  path: { at: (t: number) => WorldPoint & { zoom: number } },
   duration: number,
-  dip: number,
-  onComplete?: () => void,
 ): () => void {
   const start = performance.now();
   let frame: number;
+
+  const applyCamera = (camera: WorldPoint & { zoom: number }): void => {
+    const center = unprojectMercator(camera);
+    if (typeof raw.map.moveCamera === 'function') {
+      raw.map.moveCamera({ center, zoom: camera.zoom });
+    } else {
+      raw.map.setZoom(camera.zoom);
+      raw.map.setCenter(center);
+    }
+  };
+
+  const finish = (): void => {
+    raw.containerEl.classList.remove(FLYING_CLASS);
+    raw.containerEl.removeEventListener('pointerdown', cancel, true);
+    raw.containerEl.removeEventListener('wheel', cancel, true);
+  };
+  const cancel = (): void => {
+    cancelAnimationFrame(frame);
+    finish();
+    if (raw.cancelFlight === cancel) raw.cancelFlight = null;
+  };
+
   const step = (): void => {
     const t = Math.min(1, (performance.now() - start) / duration);
-    const eased = easeInOutCubic(t);
-    raw.map.setZoom(from.zoom + (to.zoom - from.zoom) * eased - dip * Math.sin(Math.PI * eased));
-    raw.map.setCenter(
-      unprojectMercator({ x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased }),
-    );
+    applyCamera(path.at(easeOutQuad(t)));
     if (t < 1) {
       frame = requestAnimationFrame(step);
     } else {
-      // Clear BEFORE the chain hook -- `onComplete` typically installs the
-      // next phase's own cancel handle.
+      finish();
       raw.cancelFlight = null;
-      onComplete?.();
     }
   };
+
+  raw.containerEl.classList.add(FLYING_CLASS);
+  raw.containerEl.addEventListener('pointerdown', cancel, true);
+  raw.containerEl.addEventListener('wheel', cancel, true);
   frame = requestAnimationFrame(step);
-  return () => cancelAnimationFrame(frame);
+  return cancel;
 }
 
 /**
@@ -1026,10 +1079,15 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         ...config.mapOptions,
         center,
         zoom: opts.zoom ?? 10,
+        // Overlay mode carries a consumer-supplied `mapId` when given (cloud
+        // style / vector rendering config -- OverlayView markers work with or
+        // without one; Google ignores `styles` whenever a mapId is present).
         ...(useOverlayMode
           ? config.styles != null
             ? { styles: config.styles }
-            : {}
+            : config.mapId != null
+              ? { mapId: config.mapId }
+              : {}
           : { mapId: config.mapId ?? DEFAULT_MAP_ID }),
       });
       const resizeObserver = observeContainerResize(el, map, center);
@@ -1154,9 +1212,8 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // `google.maps.LatLngBoundsLiteral`, so it is passed straight through -- no need to
       // construct a `LatLngBounds` instance (which would pull in the 'core' library).
       const raw = toRaw(handle);
-      // Any new fit request supersedes an in-flight fly -- cancel whatever
-      // phase it is in (camera drive, or a far-hop tile wait) so a stale
-      // flight can't keep dragging the camera afterward.
+      // Any new fit request supersedes an in-flight fly -- cancel it so a
+      // stale flight can't keep dragging the camera afterward.
       raw.cancelFlight?.();
       raw.cancelFlight = null;
 
@@ -1176,112 +1233,36 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         return;
       }
 
-      // Fractional zoom keeps the per-frame `setZoom` continuous (defaults
-      // off on raster maps, where integer snapping would turn the flight into
-      // a stutter). Idempotent, and deliberately left ON afterwards.
-      raw.map.setOptions({ isFractionalZoomEnabled: true });
-
-      const from = { ...projectMercator(currentCenter.lat(), currentCenter.lng()), zoom: currentZoom };
-      const toWorld = projectMercator(target.center.lat, target.center.lng);
-      const to = { ...toWorld, zoom: target.zoom };
-      // Pan distance in SCREEN pixels at the coarser of the two zooms decides
-      // the flight SHAPE: nearby targets are flown with a small zoom-out dip;
-      // far targets are not flown at all (see below).
-      const screenDistance =
-        Math.hypot(to.x - from.x, to.y - from.y) * 2 ** Math.min(from.zoom, to.zoom);
-      const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
-
-      if (screenDistance > viewport * FLY_MAX_VIEWPORTS) {
-        // Far hop. On a VECTOR map (WebGL -- geometry scales live, no tile
-        // refetch churn), fly the reference search map's three-beat sequence,
-        // matched to its transition frame-by-frame: a short zoom-out over the
-        // ORIGIN (drifting slightly toward the destination as it shrinks), a
-        // swift eased pan at a still-readable apex (~70% of the traverse in
-        // ~0.45s), then a long, gentle zoom-in over the DESTINATION. All one
-        // continuous camera path -- no cut anywhere.
-        const worldDistance = Math.hypot(to.x - from.x, to.y - from.y);
-        const renderingType =
-          typeof raw.map.getRenderingType === 'function' ? raw.map.getRenderingType() : undefined;
-        if (renderingType === 'VECTOR' && worldDistance > 0) {
-          const lowZoom = Math.min(from.zoom, to.zoom);
-          const apexZoom = Math.min(Math.max(lowZoom - FLY_APEX_DROP, FLY_APEX_MIN_ZOOM), lowZoom);
-          const at = (fraction: number): WorldPoint => ({
-            x: from.x + (to.x - from.x) * fraction,
-            y: from.y + (to.y - from.y) * fraction,
-          });
-          const panStart = { ...at(FLY_PAN_EDGE_FRACTION), zoom: apexZoom };
-          const panEnd = { ...at(1 - FLY_PAN_EDGE_FRACTION), zoom: apexZoom };
-          const zoomInBeat = (): void => {
-            raw.cancelFlight = driveCamera(raw, panEnd, to, FLY_FAR_ZOOM_IN_MS, 0);
-          };
-          const panBeat = (start: WorldPoint & { zoom: number }): void => {
-            raw.cancelFlight = driveCamera(raw, start, panEnd, FLY_APEX_PAN_MS, 0, zoomInBeat);
-          };
-          if (from.zoom - apexZoom < 0.3) {
-            // Already at/near the apex altitude (e.g. a whole-country view):
-            // nothing to zoom out of -- start with the pan beat directly.
-            panBeat({ ...at(0), zoom: from.zoom });
-          } else {
-            raw.cancelFlight = driveCamera(raw, from, panStart, FLY_FAR_ZOOM_OUT_MS, 0, () =>
-              panBeat(panStart),
-            );
-          }
-          return;
-        }
-
-        // RASTER fallback -- the V-shaped sequence (measured off the
-        // reference map's scale control): animate a zoom-OUT over the
-        // ORIGIN up to a region-scale apex, CUT the center to the destination
-        // at the apex (at that scale the pan is imperceptible and the few
-        // low-zoom tiles render almost immediately), then animate the
-        // zoom-IN over the destination. The one thing never done is gliding
-        // the camera across the distance -- on a raster map that invalidates
-        // the tile pipeline every frame and shows seconds of blank gray.
-        const apexZoom = Math.min(
-          Math.max(target.zoom - FLY_FAR_OVERVIEW_LEVELS, FLY_APEX_MIN_ZOOM),
-          target.zoom,
-        );
-        const fromWorld = { x: from.x, y: from.y };
-        const zoomIn = (): void => {
-          cancelWait();
-          // Read the zoom back rather than assuming: the map clamps to its
-          // configured minZoom, and the drive must start from the REAL camera.
-          const realApex = raw.map.getZoom() ?? apexZoom;
-          raw.cancelFlight = driveCamera(raw, { ...toWorld, zoom: realApex }, to, FLY_FAR_ZOOM_IN_MS, 0);
-        };
-        const cutAndWait = (): void => {
-          raw.map.setCenter(target.center);
-          const listener = raw.map.addListener('tilesloaded', zoomIn);
-          const timer = setTimeout(zoomIn, FLY_TILE_WAIT_MAX_MS);
-          cancelWait = () => {
-            listener.remove();
-            clearTimeout(timer);
-          };
-          raw.cancelFlight = cancelWait;
-        };
-        let cancelWait: () => void = () => {};
-        if (from.zoom > apexZoom + 0.3) {
-          // Zoom out in place over the origin, then cut.
-          raw.cancelFlight = driveCamera(
-            raw,
-            from,
-            { ...fromWorld, zoom: apexZoom },
-            FLY_FAR_ZOOM_OUT_MS,
-            0,
-            cutAndWait,
-          );
-        } else {
-          // Already at/above the apex (e.g. a whole-country view) -- nothing
-          // to zoom out of; cut straight away.
-          cutAndWait();
-        }
+      // Vector rendering only: on raster (including silent WebGL-unavailable
+      // fallbacks) every animated frame invalidates the tile pipeline and the
+      // flight renders as blank gray -- jump instantly instead. Same instant
+      // jump for users who prefer reduced motion.
+      const renderingType =
+        typeof raw.map.getRenderingType === 'function' ? raw.map.getRenderingType() : undefined;
+      const reducedMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (renderingType !== 'VECTOR' || reducedMotion) {
+        raw.map.fitBounds(b);
         return;
       }
 
-      const dip =
-        screenDistance > viewport ? Math.min(FLY_MAX_DIP, Math.log2(screenDistance / viewport) + 1) : 0;
-      const duration = Math.min(FLY_MAX_MS, FLY_MIN_MS + dip * FLY_MS_PER_DIP);
-      raw.cancelFlight = driveCamera(raw, from, to, duration, dip);
+      // Fractional zoom keeps the per-frame camera continuous (default-on
+      // for vector maps; explicit as belt-and-braces). Left ON afterwards.
+      raw.map.setOptions({ isFractionalZoomEnabled: true });
+
+      const from = { ...projectMercator(currentCenter.lat(), currentCenter.lng()), zoom: currentZoom };
+      const to = { ...projectMercator(target.center.lat, target.center.lng), zoom: target.zoom };
+      const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
+
+      // One code path for every hop: the van Wijk arc degenerates gracefully
+      // (pure eased zoom when centers coincide, a flat glide for short pans,
+      // a high-apex arc for cross-country) and its path length S sizes the
+      // duration, exactly like MapLibre's flyTo.
+      const path = vanWijkPath(from, to, viewport);
+      const duration = Math.min(FLY_MAX_MS, Math.max(FLY_MIN_MS, path.S * FLY_MS_PER_S));
+      raw.cancelFlight = driveCamera(raw, path, duration);
     },
 
     destroy(handle: MapHandle): void {

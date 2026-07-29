@@ -593,7 +593,7 @@ describe('googleProvider', () => {
 
     // A mounted provider whose fake map has a camera (center/zoom getters)
     // and a real-sized container -- everything the flight computation needs.
-    async function mountFlyable() {
+    async function mountFlyable(renderingType = 'VECTOR') {
       const provider = googleProvider({ apiKey: 'k' });
       const el = document.createElement('div');
       Object.defineProperty(el, 'clientWidth', { value: 800 });
@@ -602,10 +602,12 @@ describe('googleProvider', () => {
         center: { lat: 37.77, lng: -122.42 }, // ~San Francisco
         zoom: 12,
       });
+      const map = (handle.raw as { map: FakeMap }).map;
+      map.renderingType = renderingType;
       // Drop mount's own scheduled rAF (the container-resize initial probe)
       // so the queue holds ONLY flight frames.
       rafQueue.clear();
-      return { provider, handle, map: (handle.raw as { map: FakeMap }).map };
+      return { provider, handle, map, el };
     }
 
     beforeEach(() => {
@@ -624,140 +626,75 @@ describe('googleProvider', () => {
     });
 
     const CHICAGO: Bounds = { west: -88.12, south: 41.47, east: -87.34, north: 42.2 };
-    // ~45 screen-km east of the mounted SF camera at z12: roughly two
-    // viewports of pan -- inside the FLY_MAX_VIEWPORTS envelope, far enough
-    // to earn a zoom-out dip.
-    const EAST_BAY: Bounds = { west: -121.945, south: 37.625, east: -121.795, north: 37.775 };
 
-    it('drives the camera per frame -- fractional zoom on, a mid-flight zoom-out dip, exact target camera at the end', async () => {
-      const { provider, handle, map } = await mountFlyable();
-
-      provider.fitBounds(handle, EAST_BAY, { animate: true });
-
-      expect(map.setOptionsCalls).toContainEqual({ isFractionalZoomEnabled: true });
-      expect(rafQueue.size).toBe(1); // flight scheduled, no teleport
-      expect(fitBoundsCalls).toEqual([]);
-
+    function flyToEnd(map: FakeMap): number[] {
       const zooms: number[] = [];
-      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+      for (let i = 0; i < 80 && rafQueue.size > 0; i++) {
         pumpFrame(100);
         zooms.push(map.zoom as number);
       }
+      return zooms;
+    }
 
-      // The flight completed (queue drained) and dipped BELOW both endpoint
-      // zooms mid-way -- the zoom-out -> glide -> zoom-in arc.
-      const finalZoom = zooms[zooms.length - 1];
-      expect(Math.min(...zooms)).toBeLessThan(Math.min(12, finalZoom) - 1);
-      // Ends exactly on the camera that fits the target in the 800x600 container.
-      const center = map.center as { lat: number; lng: number };
-      expect(center.lng).toBeCloseTo((EAST_BAY.west + EAST_BAY.east) / 2, 2);
-      expect(center.lat).toBeGreaterThan(EAST_BAY.south);
-      expect(center.lat).toBeLessThan(EAST_BAY.north);
-      // Fitting is by the constraining axis: never zoomed past what fits.
-      expect(finalZoom).toBeGreaterThan(11.5);
-      expect(finalZoom).toBeLessThan(12.8);
-      expect(fitBoundsCalls).toEqual([]); // fully driven -- never delegates to map.fitBounds
-    });
-
-    it('far destination: zooms out over the ORIGIN, cuts to the destination at the apex, then zooms in', async () => {
-      const { provider, handle, map } = await mountFlyable();
+    it('flies the van Wijk arc on a vector map: high apex mid-flight, exact target camera at the end', async () => {
+      const { provider, handle, map, el } = await mountFlyable();
 
       provider.fitBounds(handle, CHICAGO, { animate: true });
 
-      // Phase 1 -- animated zoom-out, still anchored on the origin.
-      expect(fitBoundsCalls).toEqual([]);
+      expect(fitBoundsCalls).toEqual([]); // driven, never delegated
       expect(rafQueue.size).toBe(1);
-      pumpFrame(100);
-      const midOutCenter = map.center as { lat: number; lng: number };
-      expect(midOutCenter.lng).toBeCloseTo(-122.42, 1); // origin, not destination
-      expect(map.zoom as number).toBeLessThan(12);
+      expect(el.classList.contains('rle-map-flying')).toBe(true);
 
-      // Finish the zoom-out; the completion hook CUTS to the destination at
-      // the apex and starts the tile wait (no drive scheduled).
-      for (let i = 0; i < 20 && rafQueue.size > 0; i++) pumpFrame(100);
-      const cutCenter = map.center as { lat: number; lng: number };
-      expect(cutCenter.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
-      const apexZoom = map.zoom as number;
-      expect(apexZoom).toBeLessThanOrEqual(5); // region-scale overview (clamped at the apex floor)
-      expect(rafQueue.size).toBe(0);
+      const zooms = flyToEnd(map);
 
-      // Tiles land -> phase 3, pure zoom-in over the destination.
-      map.trigger('tilesloaded');
-      expect(rafQueue.size).toBe(1);
-      const zooms: number[] = [];
-      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
-        pumpFrame(100);
-        zooms.push(map.zoom as number);
-      }
-      const finalZoom = zooms[zooms.length - 1];
-      expect(finalZoom).toBeGreaterThan(apexZoom + 3);
-      expect(Math.min(...zooms)).toBeGreaterThanOrEqual(apexZoom);
-      const endCenter = map.center as { lat: number; lng: number };
-      expect(endCenter.lng).toBeCloseTo(cutCenter.lng, 5);
-      expect(fitBoundsCalls).toEqual([]); // fully driven, never delegates
-    });
-
-    it('VECTOR far destination: three chained beats (zoom-out, apex pan, zoom-in) with no cut and no tile wait', async () => {
-      const { provider, handle, map } = await mountFlyable();
-      map.renderingType = 'VECTOR';
-
-      provider.fitBounds(handle, CHICAGO, { animate: true });
-
-      expect(fitBoundsCalls).toEqual([]);
-      expect(rafQueue.size).toBe(1); // beat 1 scheduled immediately
-
-      const samples: Array<{ zoom: number; lng: number }> = [];
-      for (let i = 0; i < 45 && rafQueue.size > 0; i++) {
-        pumpFrame(100);
-        samples.push({ zoom: map.zoom as number, lng: (map.center as { lng: number }).lng });
-      }
-
-      // Crests at the region-scale apex floor (never abstract continental zooms)...
-      const minZoom = Math.min(...samples.map(sample => sample.zoom));
-      expect(minZoom).toBeGreaterThan(4.4);
-      expect(minZoom).toBeLessThan(5.6);
-      // ...the pan beat happens AT the apex: while at apex zoom the center
-      // sweeps most of the way from SF (-122) toward Chicago (-87)...
-      const apexLngs = samples.filter(sample => sample.zoom < 5.6).map(sample => sample.lng);
-      expect(Math.max(...apexLngs) - Math.min(...apexLngs)).toBeGreaterThan(20);
-      // ...and it lands exactly on the camera fitting Chicago -- the whole
-      // path was driven, no cut ever set the center.
+      // Cross-country hop crests at a region-scale apex...
+      expect(Math.min(...zooms)).toBeLessThan(7);
+      expect(Math.min(...zooms)).toBeGreaterThan(3);
+      // ...and lands exactly on the camera that fits Chicago in 800x600.
       const center = map.center as { lat: number; lng: number };
       expect(center.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 2);
-      expect(samples[samples.length - 1].zoom).toBeGreaterThan(7);
-      // No tile-wait phase on vector: 'tilesloaded' schedules nothing extra.
-      map.trigger('tilesloaded');
+      expect(zooms[zooms.length - 1]).toBeGreaterThan(9.2);
+      expect(zooms[zooms.length - 1]).toBeLessThan(10.2);
+      // Flight over: class removed, nothing scheduled.
+      expect(el.classList.contains('rle-map-flying')).toBe(false);
+      expect(fitBoundsCalls).toEqual([]);
+    });
+
+    it('prefers the batched moveCamera API when the map exposes it', async () => {
+      const { provider, handle, map } = await mountFlyable();
+      const moveCameraCalls: unknown[] = [];
+      (map as unknown as { moveCamera: (cam: unknown) => void }).moveCamera = (cam: unknown) => {
+        moveCameraCalls.push(cam);
+        const camera = cam as { center: unknown; zoom: number };
+        map.setCenter(camera.center);
+        map.zoom = camera.zoom;
+      };
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      pumpFrame(100);
+
+      expect(moveCameraCalls.length).toBe(1);
+      expect(moveCameraCalls[0]).toHaveProperty('center');
+      expect(moveCameraCalls[0]).toHaveProperty('zoom');
+    });
+
+    it('jumps instantly (plain fitBounds) on a raster map -- per-frame driving would gray out the tiles', async () => {
+      const { provider, handle } = await mountFlyable('RASTER');
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+
+      expect(fitBoundsCalls).toEqual([CHICAGO]);
       expect(rafQueue.size).toBe(0);
     });
 
-    it('a newer fitBounds during the far-hop zoom-out cancels the whole chain (no cut, no zoom-in)', async () => {
-      const { provider, handle, map } = await mountFlyable();
-      const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
+    it('jumps instantly when the user prefers reduced motion', async () => {
+      const { provider, handle } = await mountFlyable();
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('prefers-reduced-motion') }));
 
       provider.fitBounds(handle, CHICAGO, { animate: true });
-      pumpFrame(100); // zoom-out under way, anchored on the origin
 
-      provider.fitBounds(handle, fresh); // supersedes mid-zoom-out
-
+      expect(fitBoundsCalls).toEqual([CHICAGO]);
       expect(rafQueue.size).toBe(0);
-      expect(fitBoundsCalls).toEqual([fresh]);
-      // The stale chain's cut never happens: center was never moved to Chicago.
-      map.trigger('tilesloaded');
-      expect(rafQueue.size).toBe(0);
-    });
-
-    it('a newer fitBounds during the far-hop tile wait cancels the pending zoom-in', async () => {
-      const { provider, handle, map } = await mountFlyable();
-      const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
-
-      provider.fitBounds(handle, CHICAGO, { animate: true });
-      for (let i = 0; i < 20 && rafQueue.size > 0; i++) pumpFrame(100); // through the zoom-out, into the wait
-
-      provider.fitBounds(handle, fresh); // supersedes during the wait
-
-      map.trigger('tilesloaded');
-      expect(rafQueue.size).toBe(0); // stale zoom-in never starts
-      expect(fitBoundsCalls).toEqual([fresh]);
     });
 
     it('falls back to a direct fitBounds when the container has no size', async () => {
@@ -766,7 +703,8 @@ describe('googleProvider', () => {
         center: { lat: 37.77, lng: -122.42 },
         zoom: 12,
       });
-      rafQueue.clear(); // drop mount's resize-probe rAF (as in mountFlyable)
+      (handle.raw as { map: FakeMap }).map.renderingType = 'VECTOR';
+      rafQueue.clear();
 
       provider.fitBounds(handle, CHICAGO, { animate: true });
 
@@ -775,25 +713,41 @@ describe('googleProvider', () => {
     });
 
     it('a newer fitBounds call cancels the in-flight camera animation', async () => {
-      const { provider, handle, map } = await mountFlyable();
+      const { provider, handle, map, el } = await mountFlyable();
       const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
 
-      provider.fitBounds(handle, EAST_BAY, { animate: true });
+      provider.fitBounds(handle, CHICAGO, { animate: true });
       pumpFrame(100); // flight under way
       const zoomMidFlight = map.zoom;
 
-      provider.fitBounds(handle, fresh); // supersedes
+      provider.fitBounds(handle, fresh); // supersedes (plain -> direct fit)
 
       expect(rafQueue.size).toBe(0); // stale flight cancelled
+      expect(el.classList.contains('rle-map-flying')).toBe(false);
       expect(fitBoundsCalls).toEqual([fresh]);
       pumpFrame(100);
       expect(map.zoom).toBe(zoomMidFlight); // stale flight never drives the camera again
     });
 
+    it('a user gesture on the map cancels the flight (the camera never fights the user)', async () => {
+      const { provider, handle, map, el } = await mountFlyable();
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      pumpFrame(100);
+      const zoomAtGesture = map.zoom;
+
+      el.dispatchEvent(new Event('pointerdown'));
+
+      expect(rafQueue.size).toBe(0);
+      expect(el.classList.contains('rle-map-flying')).toBe(false);
+      pumpFrame(100);
+      expect(map.zoom).toBe(zoomAtGesture);
+    });
+
     it('destroy cancels the in-flight camera animation', async () => {
       const { provider, handle } = await mountFlyable();
 
-      provider.fitBounds(handle, EAST_BAY, { animate: true });
+      provider.fitBounds(handle, CHICAGO, { animate: true });
       expect(rafQueue.size).toBe(1);
 
       provider.destroy(handle);
@@ -1504,12 +1458,23 @@ describe('googleProvider', () => {
       expect(opts.mapId).toBeUndefined();
     });
 
-    it('overlayMarkers forces overlay mode with NO styles and NO mapId (the Map-ID-free vector-map case)', async () => {
-      const provider = googleProvider({ apiKey: 'k', mapId: 'ignored-here-too', overlayMarkers: true });
+    it('overlayMarkers forces overlay mode without styles; a supplied mapId is passed through (cloud styling)', async () => {
+      const provider = googleProvider({ apiKey: 'k', mapId: 'cloud-styled-id', overlayMarkers: true });
 
       const handle = await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 8 });
 
       expect(mapConstructorCalls).toHaveLength(1);
+      const opts = mapConstructorCalls[0].opts;
+      expect(opts.styles).toBeUndefined();
+      expect(opts.mapId).toBe('cloud-styled-id');
+      expect((handle.raw as { markerMode: string }).markerMode).toBe('overlay');
+    });
+
+    it('overlayMarkers without a mapId creates a Map-ID-free map (the renderingType-vector case)', async () => {
+      const provider = googleProvider({ apiKey: 'k', overlayMarkers: true });
+
+      const handle = await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 8 });
+
       const opts = mapConstructorCalls[0].opts;
       expect(opts.styles).toBeUndefined();
       expect(opts.mapId).toBeUndefined();
