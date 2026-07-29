@@ -184,13 +184,13 @@ interface GoogleMapRaw {
   /** `undefined` under SSR/environments without `ResizeObserver` -- see `observeContainerResize`. */
   resizeObserver: ResizeObserver | undefined;
   /**
-   * The rAF id of the camera animation driving an in-flight animated
-   * `fitBounds` fly -- `null` when no fly is in flight. Tracked so a NEWER
-   * `fitBounds` call (or `destroy`) can cancel it: without cancellation the
-   * stale flight would keep driving the camera after the newer request and
-   * drag it back toward an old destination.
+   * Cancels whatever phase of an animated `fitBounds` fly is active (the rAF
+   * camera drive, or a far-hop overview tile wait) -- `null` when no fly is
+   * in flight. Invoked by a NEWER `fitBounds` call and by `destroy`: without
+   * cancellation the stale flight would keep driving the camera after the
+   * newer request and drag it back toward an old destination.
    */
-  flightFrame: number | null;
+  cancelFlight: (() => void) | null;
 }
 
 function toRaw(handle: MapHandle): GoogleMapRaw {
@@ -782,6 +782,22 @@ const FLY_MIN_MS = 450;
 const FLY_MAX_MS = 1500;
 /** Extra duration (ms) per level of mid-flight zoom-out dip. */
 const FLY_MS_PER_DIP = 260;
+/**
+ * Beyond this pan distance (in viewports, measured at the coarser endpoint
+ * zoom) the "flight" is not flown -- the camera CUTS to a zoomed-out overview
+ * of the destination and animates only the zoom-in (see `fitBounds`). On a
+ * raster map every animated frame invalidates the tile pipeline, so a
+ * cross-country glide renders as seconds of blank gray. This mirrors the
+ * reference search UX: nearby moves animate, far destinations cut-then-zoom.
+ */
+const FLY_MAX_VIEWPORTS = 4;
+/** How many levels above the target zoom the far-hop overview cut lands (a
+ *  region-scale view of the destination -- few tiles, near-instant render). */
+const FLY_FAR_OVERVIEW_LEVELS = 4;
+/** Duration of the far-hop zoom-in leg (overview -> target). */
+const FLY_FAR_ZOOM_IN_MS = 1400;
+/** Max wait for the overview's 'tilesloaded' before the zoom-in starts anyway. */
+const FLY_TILE_WAIT_MAX_MS = 900;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
@@ -825,6 +841,38 @@ function cameraForBounds(b: Bounds, width: number, height: number): { center: La
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Drives the camera from `from` to `to` (world coords + fractional zoom)
+ * over `duration` ms on a `requestAnimationFrame` loop, with an optional
+ * mid-flight zoom-out `dip`. Returns a cancel function; on natural
+ * completion it clears `raw.cancelFlight` itself.
+ */
+function driveCamera(
+  raw: GoogleMapRaw,
+  from: WorldPoint & { zoom: number },
+  to: WorldPoint & { zoom: number },
+  duration: number,
+  dip: number,
+): () => void {
+  const start = performance.now();
+  let frame: number;
+  const step = (): void => {
+    const t = Math.min(1, (performance.now() - start) / duration);
+    const eased = easeInOutCubic(t);
+    raw.map.setZoom(from.zoom + (to.zoom - from.zoom) * eased - dip * Math.sin(Math.PI * eased));
+    raw.map.setCenter(
+      unprojectMercator({ x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased }),
+    );
+    if (t < 1) {
+      frame = requestAnimationFrame(step);
+    } else {
+      raw.cancelFlight = null;
+    }
+  };
+  frame = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(frame);
 }
 
 /**
@@ -968,7 +1016,7 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
         layerMarkerIds: new Map(),
         selectedMarkerId: null,
         hoveredMarkerId: null,
-        flightFrame: null,
+        cancelFlight: null,
       };
       // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
       // comment for why this can't just be an unconditional assignment.
@@ -1074,12 +1122,11 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // `google.maps.LatLngBoundsLiteral`, so it is passed straight through -- no need to
       // construct a `LatLngBounds` instance (which would pull in the 'core' library).
       const raw = toRaw(handle);
-      // Any new fit request supersedes an in-flight fly -- cancel its camera
-      // animation so a stale flight can't keep dragging the camera afterward.
-      if (raw.flightFrame != null) {
-        cancelAnimationFrame(raw.flightFrame);
-        raw.flightFrame = null;
-      }
+      // Any new fit request supersedes an in-flight fly -- cancel whatever
+      // phase it is in (camera drive, or a far-hop tile wait) so a stale
+      // flight can't keep dragging the camera afterward.
+      raw.cancelFlight?.();
+      raw.cancelFlight = null;
 
       if (!options?.animate) {
         raw.map.fitBounds(b);
@@ -1103,37 +1150,54 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       raw.map.setOptions({ isFractionalZoomEnabled: true });
 
       const from = { ...projectMercator(currentCenter.lat(), currentCenter.lng()), zoom: currentZoom };
-      const to = { ...projectMercator(target.center.lat, target.center.lng), zoom: target.zoom };
-      // Pan distance in SCREEN pixels at the coarser of the two zooms sizes
-      // both the mid-flight zoom-out dip and the duration: hops within a
-      // viewport fly flat and fast, cross-country hops arc high and long.
+      const toWorld = projectMercator(target.center.lat, target.center.lng);
+      const to = { ...toWorld, zoom: target.zoom };
+      // Pan distance in SCREEN pixels at the coarser of the two zooms decides
+      // the flight SHAPE: nearby targets are flown with a small zoom-out dip;
+      // far targets are not flown at all (see below).
       const screenDistance =
         Math.hypot(to.x - from.x, to.y - from.y) * 2 ** Math.min(from.zoom, to.zoom);
       const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
+
+      if (screenDistance > viewport * FLY_MAX_VIEWPORTS) {
+        // Far hop, the reference search UX's sequence: CUT straight to a
+        // zoomed-out overview of the DESTINATION region (low-zoom tiles cover
+        // the screen with few requests, so it renders almost immediately),
+        // let the tiles land ('tilesloaded', with a timeout fallback), then
+        // animate only the zoom-in. Gliding the camera across the distance
+        // instead invalidates the raster tile pipeline on every frame and
+        // shows seconds of blank gray -- the pan happens invisibly here,
+        // inside the cut.
+        raw.map.setCenter(target.center);
+        raw.map.setZoom(target.zoom - FLY_FAR_OVERVIEW_LEVELS);
+        const begin = (): void => {
+          cancelWait();
+          // Read the zoom back rather than assuming: the map clamps to its
+          // configured minZoom, and the drive must start from the REAL camera.
+          const overviewZoom = raw.map.getZoom() ?? target.zoom - FLY_FAR_OVERVIEW_LEVELS;
+          raw.cancelFlight = driveCamera(raw, { ...toWorld, zoom: overviewZoom }, to, FLY_FAR_ZOOM_IN_MS, 0);
+        };
+        const listener = raw.map.addListener('tilesloaded', begin);
+        const timer = setTimeout(begin, FLY_TILE_WAIT_MAX_MS);
+        const cancelWait = (): void => {
+          listener.remove();
+          clearTimeout(timer);
+        };
+        raw.cancelFlight = cancelWait;
+        return;
+      }
+
       const dip =
         screenDistance > viewport ? Math.min(FLY_MAX_DIP, Math.log2(screenDistance / viewport) + 1) : 0;
       const duration = Math.min(FLY_MAX_MS, FLY_MIN_MS + dip * FLY_MS_PER_DIP);
-      const start = performance.now();
-
-      const step = (): void => {
-        const t = Math.min(1, (performance.now() - start) / duration);
-        const eased = easeInOutCubic(t);
-        raw.map.setZoom(from.zoom + (to.zoom - from.zoom) * eased - dip * Math.sin(Math.PI * eased));
-        raw.map.setCenter(
-          unprojectMercator({ x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased }),
-        );
-        raw.flightFrame = t < 1 ? requestAnimationFrame(step) : null;
-      };
-      raw.flightFrame = requestAnimationFrame(step);
+      raw.cancelFlight = driveCamera(raw, from, to, duration, dip);
     },
 
     destroy(handle: MapHandle): void {
       const raw = toRaw(handle);
       raw.resizeObserver?.disconnect();
-      if (raw.flightFrame != null) {
-        cancelAnimationFrame(raw.flightFrame);
-        raw.flightFrame = null;
-      }
+      raw.cancelFlight?.();
+      raw.cancelFlight = null;
       for (const listener of raw.boundsListeners) listener.remove();
       raw.boundsListeners.clear();
       // Backstop for a caller (e.g. `ListingMap`'s popup-overlay effect) that unsubscribes an

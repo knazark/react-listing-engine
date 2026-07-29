@@ -617,11 +617,15 @@ describe('googleProvider', () => {
     });
 
     const CHICAGO: Bounds = { west: -88.12, south: 41.47, east: -87.34, north: 42.2 };
+    // ~45 screen-km east of the mounted SF camera at z12: roughly two
+    // viewports of pan -- inside the FLY_MAX_VIEWPORTS envelope, far enough
+    // to earn a zoom-out dip.
+    const EAST_BAY: Bounds = { west: -121.945, south: 37.625, east: -121.795, north: 37.775 };
 
     it('drives the camera per frame -- fractional zoom on, a mid-flight zoom-out dip, exact target camera at the end', async () => {
       const { provider, handle, map } = await mountFlyable();
 
-      provider.fitBounds(handle, CHICAGO, { animate: true });
+      provider.fitBounds(handle, EAST_BAY, { animate: true });
 
       expect(map.setOptionsCalls).toContainEqual({ isFractionalZoomEnabled: true });
       expect(rafQueue.size).toBe(1); // flight scheduled, no teleport
@@ -637,15 +641,59 @@ describe('googleProvider', () => {
       // zooms mid-way -- the zoom-out -> glide -> zoom-in arc.
       const finalZoom = zooms[zooms.length - 1];
       expect(Math.min(...zooms)).toBeLessThan(Math.min(12, finalZoom) - 1);
-      // Ends exactly on the camera that fits Chicago in the 800x600 container.
+      // Ends exactly on the camera that fits the target in the 800x600 container.
       const center = map.center as { lat: number; lng: number };
-      expect(center.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
-      expect(center.lat).toBeGreaterThan(CHICAGO.south);
-      expect(center.lat).toBeLessThan(CHICAGO.north);
+      expect(center.lng).toBeCloseTo((EAST_BAY.west + EAST_BAY.east) / 2, 2);
+      expect(center.lat).toBeGreaterThan(EAST_BAY.south);
+      expect(center.lat).toBeLessThan(EAST_BAY.north);
       // Fitting is by the constraining axis: never zoomed past what fits.
-      expect(finalZoom).toBeGreaterThan(7);
-      expect(finalZoom).toBeLessThan(11);
+      expect(finalZoom).toBeGreaterThan(11.5);
+      expect(finalZoom).toBeLessThan(12.8);
       expect(fitBoundsCalls).toEqual([]); // fully driven -- never delegates to map.fitBounds
+    });
+
+    it('far destination: cuts to a destination overview, then (once tiles load) animates only the zoom-in', async () => {
+      const { provider, handle, map } = await mountFlyable();
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+
+      // The cut: instantly at the DESTINATION center, FLY_FAR_OVERVIEW_LEVELS
+      // above the target zoom -- no fitBounds delegation, no drive yet (the
+      // zoom-in waits for the overview's tiles).
+      expect(fitBoundsCalls).toEqual([]);
+      expect(rafQueue.size).toBe(0);
+      const cutCenter = map.center as { lat: number; lng: number };
+      expect(cutCenter.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
+      const overviewZoom = map.zoom as number;
+
+      map.trigger('tilesloaded');
+      expect(rafQueue.size).toBe(1); // zoom-in drive scheduled
+
+      const zooms: number[] = [];
+      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+        pumpFrame(100);
+        zooms.push(map.zoom as number);
+      }
+      // Pure zoom-in: monotonically approaches the target, exactly
+      // FLY_FAR_OVERVIEW_LEVELS above where it started, center unchanged.
+      const finalZoom = zooms[zooms.length - 1];
+      expect(finalZoom).toBeCloseTo(overviewZoom + 4, 5);
+      expect(Math.min(...zooms)).toBeGreaterThanOrEqual(overviewZoom);
+      const endCenter = map.center as { lat: number; lng: number };
+      expect(endCenter.lng).toBeCloseTo(cutCenter.lng, 5);
+      expect(fitBoundsCalls).toEqual([]);
+    });
+
+    it('a newer fitBounds during the far-hop tile wait cancels the pending zoom-in', async () => {
+      const { provider, handle, map } = await mountFlyable();
+      const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
+
+      provider.fitBounds(handle, CHICAGO, { animate: true }); // cut, waiting on tiles
+      provider.fitBounds(handle, fresh); // supersedes during the wait
+
+      map.trigger('tilesloaded');
+      expect(rafQueue.size).toBe(0); // stale zoom-in never starts
+      expect(fitBoundsCalls).toEqual([fresh]);
     });
 
     it('falls back to a direct fitBounds when the container has no size', async () => {
@@ -666,7 +714,7 @@ describe('googleProvider', () => {
       const { provider, handle, map } = await mountFlyable();
       const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
 
-      provider.fitBounds(handle, CHICAGO, { animate: true });
+      provider.fitBounds(handle, EAST_BAY, { animate: true });
       pumpFrame(100); // flight under way
       const zoomMidFlight = map.zoom;
 
@@ -681,7 +729,7 @@ describe('googleProvider', () => {
     it('destroy cancels the in-flight camera animation', async () => {
       const { provider, handle } = await mountFlyable();
 
-      provider.fitBounds(handle, CHICAGO, { animate: true });
+      provider.fitBounds(handle, EAST_BAY, { animate: true });
       expect(rafQueue.size).toBe(1);
 
       provider.destroy(handle);
