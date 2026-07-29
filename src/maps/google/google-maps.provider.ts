@@ -791,13 +791,17 @@ const FLY_MS_PER_DIP = 260;
  * reference search UX: nearby moves animate, far destinations cut-then-zoom.
  */
 const FLY_MAX_VIEWPORTS = 4;
-/** How many levels above the target zoom the far-hop overview cut lands (a
- *  region-scale view of the destination -- few tiles, near-instant render). */
-const FLY_FAR_OVERVIEW_LEVELS = 4;
-/** Duration of the far-hop zoom-in leg (overview -> target). */
-const FLY_FAR_ZOOM_IN_MS = 1400;
-/** Max wait for the overview's 'tilesloaded' before the zoom-in starts anyway. */
-const FLY_TILE_WAIT_MAX_MS = 900;
+/** How many levels above the target zoom the far-hop apex (overview) sits --
+ *  a region-scale view: few tiles, near-instant render. */
+const FLY_FAR_OVERVIEW_LEVELS = 5;
+/** The apex never zooms out further than this (a continent-scale floor). */
+const FLY_APEX_MIN_ZOOM = 3;
+/** Duration of the far-hop zoom-out leg (origin -> apex). */
+const FLY_FAR_ZOOM_OUT_MS = 800;
+/** Duration of the far-hop zoom-in leg (apex -> target). */
+const FLY_FAR_ZOOM_IN_MS = 1300;
+/** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway. */
+const FLY_TILE_WAIT_MAX_MS = 600;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
@@ -855,6 +859,7 @@ function driveCamera(
   to: WorldPoint & { zoom: number },
   duration: number,
   dip: number,
+  onComplete?: () => void,
 ): () => void {
   const start = performance.now();
   let frame: number;
@@ -868,7 +873,10 @@ function driveCamera(
     if (t < 1) {
       frame = requestAnimationFrame(step);
     } else {
+      // Clear BEFORE the chain hook -- `onComplete` typically installs the
+      // next phase's own cancel handle.
       raw.cancelFlight = null;
+      onComplete?.();
     }
   };
   frame = requestAnimationFrame(step);
@@ -1160,30 +1168,52 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
 
       if (screenDistance > viewport * FLY_MAX_VIEWPORTS) {
-        // Far hop, the reference search UX's sequence: CUT straight to a
-        // zoomed-out overview of the DESTINATION region (low-zoom tiles cover
-        // the screen with few requests, so it renders almost immediately),
-        // let the tiles land ('tilesloaded', with a timeout fallback), then
-        // animate only the zoom-in. Gliding the camera across the distance
-        // instead invalidates the raster tile pipeline on every frame and
-        // shows seconds of blank gray -- the pan happens invisibly here,
-        // inside the cut.
-        raw.map.setCenter(target.center);
-        raw.map.setZoom(target.zoom - FLY_FAR_OVERVIEW_LEVELS);
-        const begin = (): void => {
+        // Far hop -- the reference search UX's V-shaped sequence (measured
+        // off its live map's scale control): animate a zoom-OUT over the
+        // ORIGIN up to a region-scale apex, CUT the center to the destination
+        // at the apex (at that scale the pan is imperceptible and the few
+        // low-zoom tiles render almost immediately), then animate the
+        // zoom-IN over the destination. The one thing never done is gliding
+        // the camera across the distance -- on a raster map that invalidates
+        // the tile pipeline every frame and shows seconds of blank gray.
+        const apexZoom = Math.min(
+          Math.max(target.zoom - FLY_FAR_OVERVIEW_LEVELS, FLY_APEX_MIN_ZOOM),
+          target.zoom,
+        );
+        const fromWorld = { x: from.x, y: from.y };
+        const zoomIn = (): void => {
           cancelWait();
           // Read the zoom back rather than assuming: the map clamps to its
           // configured minZoom, and the drive must start from the REAL camera.
-          const overviewZoom = raw.map.getZoom() ?? target.zoom - FLY_FAR_OVERVIEW_LEVELS;
-          raw.cancelFlight = driveCamera(raw, { ...toWorld, zoom: overviewZoom }, to, FLY_FAR_ZOOM_IN_MS, 0);
+          const realApex = raw.map.getZoom() ?? apexZoom;
+          raw.cancelFlight = driveCamera(raw, { ...toWorld, zoom: realApex }, to, FLY_FAR_ZOOM_IN_MS, 0);
         };
-        const listener = raw.map.addListener('tilesloaded', begin);
-        const timer = setTimeout(begin, FLY_TILE_WAIT_MAX_MS);
-        const cancelWait = (): void => {
-          listener.remove();
-          clearTimeout(timer);
+        const cutAndWait = (): void => {
+          raw.map.setCenter(target.center);
+          const listener = raw.map.addListener('tilesloaded', zoomIn);
+          const timer = setTimeout(zoomIn, FLY_TILE_WAIT_MAX_MS);
+          cancelWait = () => {
+            listener.remove();
+            clearTimeout(timer);
+          };
+          raw.cancelFlight = cancelWait;
         };
-        raw.cancelFlight = cancelWait;
+        let cancelWait: () => void = () => {};
+        if (from.zoom > apexZoom + 0.3) {
+          // Zoom out in place over the origin, then cut.
+          raw.cancelFlight = driveCamera(
+            raw,
+            from,
+            { ...fromWorld, zoom: apexZoom },
+            FLY_FAR_ZOOM_OUT_MS,
+            0,
+            cutAndWait,
+          );
+        } else {
+          // Already at/above the apex (e.g. a whole-country view) -- nothing
+          // to zoom out of; cut straight away.
+          cutAndWait();
+        }
         return;
       }
 

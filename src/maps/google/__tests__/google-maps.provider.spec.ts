@@ -652,43 +652,67 @@ describe('googleProvider', () => {
       expect(fitBoundsCalls).toEqual([]); // fully driven -- never delegates to map.fitBounds
     });
 
-    it('far destination: cuts to a destination overview, then (once tiles load) animates only the zoom-in', async () => {
+    it('far destination: zooms out over the ORIGIN, cuts to the destination at the apex, then zooms in', async () => {
       const { provider, handle, map } = await mountFlyable();
 
       provider.fitBounds(handle, CHICAGO, { animate: true });
 
-      // The cut: instantly at the DESTINATION center, FLY_FAR_OVERVIEW_LEVELS
-      // above the target zoom -- no fitBounds delegation, no drive yet (the
-      // zoom-in waits for the overview's tiles).
+      // Phase 1 -- animated zoom-out, still anchored on the origin.
       expect(fitBoundsCalls).toEqual([]);
-      expect(rafQueue.size).toBe(0);
+      expect(rafQueue.size).toBe(1);
+      pumpFrame(100);
+      const midOutCenter = map.center as { lat: number; lng: number };
+      expect(midOutCenter.lng).toBeCloseTo(-122.42, 1); // origin, not destination
+      expect(map.zoom as number).toBeLessThan(12);
+
+      // Finish the zoom-out; the completion hook CUTS to the destination at
+      // the apex and starts the tile wait (no drive scheduled).
+      for (let i = 0; i < 20 && rafQueue.size > 0; i++) pumpFrame(100);
       const cutCenter = map.center as { lat: number; lng: number };
       expect(cutCenter.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 5);
-      const overviewZoom = map.zoom as number;
+      const apexZoom = map.zoom as number;
+      expect(apexZoom).toBeLessThan(5); // region-scale overview
+      expect(rafQueue.size).toBe(0);
 
+      // Tiles land -> phase 3, pure zoom-in over the destination.
       map.trigger('tilesloaded');
-      expect(rafQueue.size).toBe(1); // zoom-in drive scheduled
-
+      expect(rafQueue.size).toBe(1);
       const zooms: number[] = [];
       for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
         pumpFrame(100);
         zooms.push(map.zoom as number);
       }
-      // Pure zoom-in: monotonically approaches the target, exactly
-      // FLY_FAR_OVERVIEW_LEVELS above where it started, center unchanged.
       const finalZoom = zooms[zooms.length - 1];
-      expect(finalZoom).toBeCloseTo(overviewZoom + 4, 5);
-      expect(Math.min(...zooms)).toBeGreaterThanOrEqual(overviewZoom);
+      expect(finalZoom).toBeGreaterThan(apexZoom + 3);
+      expect(Math.min(...zooms)).toBeGreaterThanOrEqual(apexZoom);
       const endCenter = map.center as { lat: number; lng: number };
       expect(endCenter.lng).toBeCloseTo(cutCenter.lng, 5);
-      expect(fitBoundsCalls).toEqual([]);
+      expect(fitBoundsCalls).toEqual([]); // fully driven, never delegates
+    });
+
+    it('a newer fitBounds during the far-hop zoom-out cancels the whole chain (no cut, no zoom-in)', async () => {
+      const { provider, handle, map } = await mountFlyable();
+      const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      pumpFrame(100); // zoom-out under way, anchored on the origin
+
+      provider.fitBounds(handle, fresh); // supersedes mid-zoom-out
+
+      expect(rafQueue.size).toBe(0);
+      expect(fitBoundsCalls).toEqual([fresh]);
+      // The stale chain's cut never happens: center was never moved to Chicago.
+      map.trigger('tilesloaded');
+      expect(rafQueue.size).toBe(0);
     });
 
     it('a newer fitBounds during the far-hop tile wait cancels the pending zoom-in', async () => {
       const { provider, handle, map } = await mountFlyable();
       const fresh: Bounds = { west: -75, south: 40, east: -73, north: 41 };
 
-      provider.fitBounds(handle, CHICAGO, { animate: true }); // cut, waiting on tiles
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+      for (let i = 0; i < 20 && rafQueue.size > 0; i++) pumpFrame(100); // through the zoom-out, into the wait
+
       provider.fitBounds(handle, fresh); // supersedes during the wait
 
       map.trigger('tilesloaded');
