@@ -87,6 +87,13 @@ class FakeMap {
     this.setOptionsCalls.push(options);
   }
 
+  /** 'RASTER' unless a test flips it -- the animated-fitBounds far-hop path branches on this. */
+  renderingType = 'RASTER';
+
+  getRenderingType(): string {
+    return this.renderingType;
+  }
+
   trigger(event: string): void {
     for (const handler of this.listeners[event] ?? []) handler();
   }
@@ -688,6 +695,33 @@ describe('googleProvider', () => {
       const endCenter = map.center as { lat: number; lng: number };
       expect(endCenter.lng).toBeCloseTo(cutCenter.lng, 5);
       expect(fitBoundsCalls).toEqual([]); // fully driven, never delegates
+    });
+
+    it('VECTOR far destination: one continuous arc -- no cut, no tile wait, deep mid-flight dip, exact target camera', async () => {
+      const { provider, handle, map } = await mountFlyable();
+      map.renderingType = 'VECTOR';
+
+      provider.fitBounds(handle, CHICAGO, { animate: true });
+
+      expect(fitBoundsCalls).toEqual([]);
+      expect(rafQueue.size).toBe(1); // single drive, scheduled immediately
+
+      const zooms: number[] = [];
+      for (let i = 0; i < 40 && rafQueue.size > 0; i++) {
+        pumpFrame(100);
+        zooms.push(map.zoom as number);
+      }
+
+      // Continuous arc: dips to a region-scale apex mid-flight...
+      expect(Math.min(...zooms)).toBeLessThan(6);
+      // ...and lands exactly on the camera fitting Chicago, center included --
+      // the pan happened inside the same move (no cut ever set the center).
+      const center = map.center as { lat: number; lng: number };
+      expect(center.lng).toBeCloseTo((CHICAGO.west + CHICAGO.east) / 2, 2);
+      expect(zooms[zooms.length - 1]).toBeGreaterThan(7);
+      // No tile-wait phase: 'tilesloaded' never schedules anything extra.
+      map.trigger('tilesloaded');
+      expect(rafQueue.size).toBe(0);
     });
 
     it('a newer fitBounds during the far-hop zoom-out cancels the whole chain (no cut, no zoom-in)', async () => {

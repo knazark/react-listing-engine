@@ -813,6 +813,12 @@ const FLY_FAR_ZOOM_OUT_MS = 650;
 const FLY_FAR_ZOOM_IN_MS = 1400;
 /** Max wait for the apex view's 'tilesloaded' before the zoom-in starts anyway. */
 const FLY_TILE_WAIT_MAX_MS = 600;
+/** Duration ceiling for the VECTOR far-hop continuous arc (see `fitBounds`). */
+const FLY_FAR_MAX_MS = 2400;
+/** On the vector arc, the apex is the zoom where the remaining pan spans about
+ *  this fraction of the viewport -- deep enough that the traverse reads as a
+ *  glide over an overview, not a slide across streets. */
+const FLY_APEX_PAN_FRACTION = 0.75;
 /** Max extra zoom-out (levels) at the midpoint of the longest flights. */
 const FLY_MAX_DIP = 4;
 
@@ -1184,8 +1190,27 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const viewport = Math.max(raw.containerEl.clientWidth, raw.containerEl.clientHeight);
 
       if (screenDistance > viewport * FLY_MAX_VIEWPORTS) {
-        // Far hop -- the reference search UX's V-shaped sequence (measured
-        // off its live map's scale control): animate a zoom-OUT over the
+        // Far hop. On a VECTOR map (WebGL -- geometry scales live, no tile
+        // refetch churn), fly ONE continuous camera arc: pan and zoom in a
+        // single eased move whose mid-flight dip reaches an apex where the
+        // remaining pan spans well under a viewport -- the reference search
+        // map's seamless zoom-out-glide-zoom-in, with no cut anywhere.
+        const worldDistance = Math.hypot(to.x - from.x, to.y - from.y);
+        const renderingType =
+          typeof raw.map.getRenderingType === 'function' ? raw.map.getRenderingType() : undefined;
+        if (renderingType === 'VECTOR' && worldDistance > 0) {
+          const apexZoom = Math.max(
+            Math.log2((viewport * FLY_APEX_PAN_FRACTION) / worldDistance),
+            FLY_APEX_MIN_ZOOM,
+          );
+          const arcDip = Math.max(0, (from.zoom + to.zoom) / 2 - apexZoom);
+          const arcDuration = Math.min(FLY_FAR_MAX_MS, FLY_MIN_MS + arcDip * FLY_MS_PER_DIP);
+          raw.cancelFlight = driveCamera(raw, from, to, arcDuration, arcDip);
+          return;
+        }
+
+        // RASTER fallback -- the V-shaped sequence (measured off the
+        // reference map's scale control): animate a zoom-OUT over the
         // ORIGIN up to a region-scale apex, CUT the center to the destination
         // at the apex (at that scale the pan is imperceptible and the few
         // low-zoom tiles render almost immediately), then animate the
