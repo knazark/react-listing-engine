@@ -36,6 +36,8 @@ export type ListingAppMapProp =
 			mapOptions?: Partial<google.maps.MapOptions>;
 			/** Legacy JSON map styling forwarded to `googleProvider` -- switches it into no-`mapId` OverlayView marker mode (mutually exclusive with `mapId`); see `GoogleMapsProviderConfig.styles`. */
 			styles?: google.maps.MapTypeStyle[];
+			/** Forces OverlayView markers WITHOUT styling -- for Map-ID-free VECTOR maps; see `GoogleMapsProviderConfig.overlayMarkers`. */
+			overlayMarkers?: boolean;
 			center?: LatLng;
 			zoom?: number;
 	  };
@@ -141,6 +143,7 @@ function useResolvedMap(map: ListingAppMapProp | undefined): MapResolution {
 	const mapId = isApiKeyShape ? (map as { mapId?: string }).mapId : undefined;
 	const mapOptions = isApiKeyShape ? (map as { mapOptions?: Partial<google.maps.MapOptions> }).mapOptions : undefined;
 	const styles = isApiKeyShape ? (map as { styles?: google.maps.MapTypeStyle[] }).styles : undefined;
+	const overlayMarkers = isApiKeyShape ? (map as { overlayMarkers?: boolean }).overlayMarkers : undefined;
 
 	const [state, setState] = useState<MapResolution>(() =>
 		!map || isMapProviderShape(map) ? { ready: true, provider: map?.provider } : { ready: false },
@@ -152,7 +155,7 @@ function useResolvedMap(map: ListingAppMapProp | undefined): MapResolution {
 
 		void import('~/maps/google').then(({ googleProvider }) => {
 			if (cancelled) return;
-			setState({ ready: true, provider: googleProvider({ apiKey, mapId, mapOptions, styles }) });
+			setState({ ready: true, provider: googleProvider({ apiKey, mapId, mapOptions, styles, overlayMarkers }) });
 		});
 
 		return () => {

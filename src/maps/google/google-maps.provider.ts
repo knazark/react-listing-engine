@@ -104,6 +104,15 @@ export interface GoogleMapsProviderConfig {
    * `styles` to keep the default advanced-marker (`mapId`) path.
    */
   styles?: google.maps.MapTypeStyle[];
+  /**
+   * Forces the NO-`mapId` OverlayView marker mode WITHOUT legacy JSON `styles`.
+   * The use case is a Map-ID-free VECTOR map (`mapOptions.renderingType:
+   * 'VECTOR'`): vector rendering ignores JSON `styles`, and
+   * `AdvancedMarkerElement` requires a Map ID -- this flag keeps markers as
+   * OverlayView HTML overlays (which work on both renderers) while leaving
+   * the map unstyled. Implied by `styles`; `mapId` is ignored while set.
+   */
+  overlayMarkers?: boolean;
 }
 
 /**
@@ -999,14 +1008,19 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const markerLib = await importLibrary('marker');
       const center = opts.center ?? { lat: 0, lng: 0 };
       // `styles` and `mapId` are mutually exclusive (see `GoogleMapsProviderConfig.styles`):
-      // supplying `styles` creates the map WITHOUT a `mapId` (so JSON styling applies) and drives
-      // OverlayView markers; otherwise the default advanced-marker (`mapId`) path is used.
-      const useOverlayMode = config.styles != null;
+      // supplying `styles` (or `overlayMarkers`) creates the map WITHOUT a `mapId` (so JSON
+      // styling applies / vector rendering stays Map-ID-free) and drives OverlayView markers;
+      // otherwise the default advanced-marker (`mapId`) path is used.
+      const useOverlayMode = config.styles != null || config.overlayMarkers === true;
       const map = new mapsLib.Map(el, {
         ...config.mapOptions,
         center,
         zoom: opts.zoom ?? 10,
-        ...(useOverlayMode ? { styles: config.styles } : { mapId: config.mapId ?? DEFAULT_MAP_ID }),
+        ...(useOverlayMode
+          ? config.styles != null
+            ? { styles: config.styles }
+            : {}
+          : { mapId: config.mapId ?? DEFAULT_MAP_ID }),
       });
       const resizeObserver = observeContainerResize(el, map, center);
       const raw: GoogleMapRaw = {

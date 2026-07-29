@@ -1464,6 +1464,18 @@ describe('googleProvider', () => {
       expect(opts.mapId).toBeUndefined();
     });
 
+    it('overlayMarkers forces overlay mode with NO styles and NO mapId (the Map-ID-free vector-map case)', async () => {
+      const provider = googleProvider({ apiKey: 'k', mapId: 'ignored-here-too', overlayMarkers: true });
+
+      const handle = await provider.mount(document.createElement('div'), { center: { lat: 1, lng: 2 }, zoom: 8 });
+
+      expect(mapConstructorCalls).toHaveLength(1);
+      const opts = mapConstructorCalls[0].opts;
+      expect(opts.styles).toBeUndefined();
+      expect(opts.mapId).toBeUndefined();
+      expect((handle.raw as { markerMode: string }).markerMode).toBe('overlay');
+    });
+
     it('renderLayer creates OverlayView markers (not AdvancedMarkerElements) and adds them via setMap', async () => {
       const provider = googleProvider({ apiKey: 'k', styles });
       const handle = await provider.mount(document.createElement('div'), {});
