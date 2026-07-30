@@ -1,3 +1,4 @@
+import { BottomNav } from './bottom-nav';
 import type { IListingComponents } from '~/react';
 
 import {
@@ -28,6 +29,7 @@ import {
  * default -- exactly the bug this object exists to avoid.
  */
 export const styledDefaultComponents: IListingComponents = {
+	BottomNav,
 	Card: StyledCard,
 	Marker: StyledMarker,
 	Popup: StyledPopup,

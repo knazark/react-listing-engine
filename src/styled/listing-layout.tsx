@@ -17,7 +17,7 @@ import {
 	useListingState,
 } from '~/react';
 
-import { BottomNav, type IBottomNavAction, type BottomNavView } from './bottom-nav';
+import { type IBottomNavAction, type BottomNavView } from './bottom-nav';
 import { BottomSheet } from './bottom-sheet';
 import { MobileHeader } from './mobile-header';
 
@@ -250,7 +250,7 @@ export function StyledListingLayout<TFilters = unknown>({
 	className,
 }: IStyledListingLayoutProps<TFilters>) {
 	const engine = useListing();
-	const { Search } = useListingComponents();
+	const { BottomNav: BottomNavSlot, Search } = useListingComponents();
 	const results = useListingResults();
 	const { filters, set } = useListingFilters();
 	const { pagination } = useListingState();
@@ -414,7 +414,7 @@ export function StyledListingLayout<TFilters = unknown>({
 				)}
 			</div>
 
-			{hasMap && <BottomNav view={mobileView} onViewChange={setMobileView} />}
+			{hasMap && <BottomNavSlot view={mobileView} onViewChange={setMobileView} />}
 
 			<BottomSheet
 				title="Filters"

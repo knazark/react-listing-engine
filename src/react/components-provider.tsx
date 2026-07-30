@@ -58,7 +58,14 @@ export interface IListingToolbarProps {
   children?: ReactNode;
 }
 
+/** Props for the mobile List|Map view switcher slot (`BottomNav`). */
+export interface IListingBottomNavProps {
+  view: 'list' | 'map';
+  onViewChange(view: 'list' | 'map'): void;
+}
+
 export interface IListingComponents {
+  BottomNav: ComponentType<IListingBottomNavProps>;
   Card: ComponentType<IListingCardProps>;
   Marker: ComponentType<IListingMarkerProps>;
   Popup: ComponentType<IListingPopupProps>;
@@ -119,7 +126,19 @@ const FallbackResultHeader: ComponentType<IListingResultHeaderProps> = ({ count 
 
 const FallbackToolbar: ComponentType<IListingToolbarProps> = ({ children }) => <div>{children}</div>;
 
+const FallbackBottomNav: ComponentType<IListingBottomNavProps> = ({ view, onViewChange }) => (
+  <nav aria-label="Listing navigation">
+    <button type="button" aria-pressed={view === 'list'} onClick={() => onViewChange('list')}>
+      List
+    </button>
+    <button type="button" aria-pressed={view === 'map'} onClick={() => onViewChange('map')}>
+      Map
+    </button>
+  </nav>
+);
+
 const defaults: IListingComponents = {
+  BottomNav: FallbackBottomNav,
   Card: FallbackCard,
   Marker: FallbackMarker,
   Popup: FallbackPopup,
@@ -141,10 +160,11 @@ const ListingComponentsContext = createContext<IListingComponents>(defaults);
  * `provided ?? defaults.X` merge, not a generic/reflective loop.
  */
 export function ListingComponentsProvider(props: Partial<IListingComponents> & { children: ReactNode }) {
-  const { Card, Marker, Popup, Sidebar, FilterPanel, Search, Empty, Loading, ResultHeader, Toolbar, children } =
+  const { BottomNav, Card, Marker, Popup, Sidebar, FilterPanel, Search, Empty, Loading, ResultHeader, Toolbar, children } =
     props;
 
   const value: IListingComponents = {
+    BottomNav: BottomNav ?? defaults.BottomNav,
     Card: Card ?? defaults.Card,
     Marker: Marker ?? defaults.Marker,
     Popup: Popup ?? defaults.Popup,

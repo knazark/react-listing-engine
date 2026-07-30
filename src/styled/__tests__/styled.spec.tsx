@@ -200,8 +200,9 @@ describe('StyledSearch', () => {
 // -----------------------------------------------------------------------------
 
 describe('styledDefaultComponents', () => {
-	it('provides a component for all 10 IListingComponents slots', () => {
+	it('provides a component for all 11 IListingComponents slots', () => {
 		const slots = [
+			'BottomNav',
 			'Card',
 			'Marker',
 			'Popup',
