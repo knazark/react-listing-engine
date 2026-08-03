@@ -71,6 +71,8 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	mapZoom?: number;
 	/** Forwarded verbatim to `<ListingMap mapControls={mapControls} />` -- see that prop's doc comment. */
 	mapControls?: ReactNode;
+	/** Forwarded verbatim to `<ListingMap onMapReady={onMapReady} />` -- the native-map escape hatch; see that prop's doc comment. */
+	onMapReady?: (map: unknown) => void;
 	/**
 	 * Render-prop override for the mobile filters sheet's footer -- when
 	 * given, replaces the default "Clear all" + "Show N results" buttons
@@ -246,6 +248,7 @@ export function StyledListingLayout<TFilters = unknown>({
 	mapCenter,
 	mapZoom,
 	mapControls,
+	onMapReady,
 	mobileSheetFooter,
 	className,
 }: IStyledListingLayoutProps<TFilters>) {
@@ -409,7 +412,13 @@ export function StyledListingLayout<TFilters = unknown>({
 				</div>
 				{hasMap && (
 					<div className="rle-map">
-						<ListingMap center={mapCenter} zoom={mapZoom} fallback={MAP_FALLBACK} mapControls={mapControls} />
+						<ListingMap
+							center={mapCenter}
+							zoom={mapZoom}
+							fallback={MAP_FALLBACK}
+							mapControls={mapControls}
+							onMapReady={onMapReady}
+						/>
 					</div>
 				)}
 			</div>

@@ -111,6 +111,16 @@ export interface ListingAppProps<TFilters> {
 	 * drops the map region entirely in that case).
 	 */
 	mapControls?: ReactNode;
+	/**
+	 * Fires with the underlying map SDK's native map object (`google.maps.Map`
+	 * for the built-in Google provider) once the map mounts, and `null` when it
+	 * is torn down -- forwarded verbatim through `StyledListingLayout` to
+	 * `ListingMap`'s own `onMapReady` prop. The escape hatch for
+	 * provider-specific features the library doesn't wrap (Google data-driven
+	 * styling `FeatureLayer`s, custom overlays, ...). Typed `unknown`; cast to
+	 * your SDK's map type. Omit (the default) to fire nothing.
+	 */
+	onMapReady?: (map: unknown) => void;
 	/** Forwarded verbatim to `StyledListingLayout`'s `mobileSheetFooter` -- see that prop's doc comment. */
 	mobileSheetFooter?: (ctx: MobileSheetFooterContext<TFilters>) => ReactNode;
 	config?: Partial<IListingConfigOptions>;
@@ -249,6 +259,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		filterBarStart,
 		toolbarEnd,
 		mapControls,
+		onMapReady,
 		mobileSheetFooter,
 		config,
 		autoFetch,
@@ -290,6 +301,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 					mapControls={mapControls}
+					onMapReady={onMapReady}
 					mobileSheetFooter={mobileSheetFooter}
 				/>
 			</ListingComponentsProvider>

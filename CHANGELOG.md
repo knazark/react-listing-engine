@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.8.0
+
+### Minor Changes
+
+- Add an `onMapReady` prop to `ListingApp` (and the underlying `ListingMap`): it fires with the map SDK's native map object (`MapHandle.raw` -- the `google.maps.Map` for the Google provider) once the map mounts, and again with `null` when it is torn down. This is the escape hatch for provider-specific features the library doesn't wrap -- e.g. Google data-driven-styling `FeatureLayer`s, custom overlays. Typed `unknown`; cast to your SDK's map type. Fully backward-compatible: omit it and nothing changes.
+
 ## 0.7.10
 
 ### Patch Changes

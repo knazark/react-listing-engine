@@ -83,6 +83,17 @@ export interface IListingMapProps {
    * Omit (the default, `undefined`) to render nothing extra -- no behavior change.
    */
   mapControls?: ReactNode;
+  /**
+   * Fires with the underlying map SDK's native map object (`MapHandle.raw` --
+   * the `google.maps.Map` for `googleProvider`) the moment the map finishes
+   * mounting, and again with `null` when it is torn down (unmount / Strict-Mode
+   * double-invoke). Typed `unknown` because this layer is provider-agnostic:
+   * the consumer casts to their SDK's map type. This is the escape hatch for
+   * provider-specific features the library doesn't wrap (e.g. Google
+   * data-driven-styling `FeatureLayer`s). Omit (the default) to fire nothing --
+   * a fully backward-compatible addition.
+   */
+  onMapReady?: (map: unknown) => void;
 }
 
 /**
@@ -218,9 +229,18 @@ export interface IListingMapProps {
  * doc comment.
  */
 export function ListingMap(props: IListingMapProps) {
-  const { center, zoom, fallback, mapControls } = props;
+  const { center, zoom, fallback, mapControls, onMapReady } = props;
   const engine = useListing();
   const state = useListingState();
+
+  // Latest `onMapReady` reachable from the mount effect WITHOUT joining its
+  // dependency list: an inline consumer closure changes identity every render,
+  // but the mount effect keys only on `[engine, provider]` -- remounting the
+  // whole map on any other change would tear down and rebuild the SDK map. Read
+  // through a ref so the fire below always calls the current callback (same
+  // ref-latch pattern as `selectedRef`/`FiltersChangeEmitter`).
+  const onMapReadyRef = useRef(onMapReady);
+  onMapReadyRef.current = onMapReady;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   // The outer wrapper -- contains BOTH `containerRef`'s map mount div and the `mapControls`
@@ -325,6 +345,12 @@ export function ListingMap(props: IListingMapProps) {
       });
       setReady(true);
 
+      // Hand the consumer the native map now that it's fully mounted (see
+      // `onMapReady`'s doc). Placed AFTER the `cancelled` guard above, so a
+      // Strict-Mode-discarded mount never leaks a live map object the consumer
+      // would attach overlays to and then never hear was destroyed.
+      onMapReadyRef.current?.(handle.raw);
+
       // Kick a one-time, unbounded points load so there is data to frame
       // even though the map hasn't panned (and therefore never fired its
       // own bounds-changed event) yet -- see "Auto-fit" in the class doc
@@ -345,6 +371,9 @@ export function ListingMap(props: IListingMapProps) {
         // the engine outlives this component (it belongs to the provider), so
         // a stale handle left behind would delegate into a destroyed map.
         engine.setMapHandle(null);
+        // Tell the consumer the native map is gone so it can drop any
+        // provider-specific overlays/layers it attached in `onMapReady`.
+        onMapReadyRef.current?.(null);
       }
       setReady(false);
     };
