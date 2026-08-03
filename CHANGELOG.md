@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.9.0
+
+### Minor Changes
+
+- Add an `initialPage` prop to `ListingApp` (0-based): when set, the mount autoFetch loads that page directly via `engine.goToPage(initialPage)` (an offset request) instead of page 1, so a deep-linked/refreshed `?page=N` restores in a single fetch rather than page-1-then-jump. Only honored with `autoFetch` on; unset/`0` loads page 1 as before. Needs an offset-capable adapter.
+
 ## 0.8.0
 
 ### Minor Changes

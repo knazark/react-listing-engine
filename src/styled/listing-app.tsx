@@ -125,6 +125,13 @@ export interface ListingAppProps<TFilters> {
 	mobileSheetFooter?: (ctx: MobileSheetFooterContext<TFilters>) => ReactNode;
 	config?: Partial<IListingConfigOptions>;
 	autoFetch?: boolean;
+	/**
+	 * 0-based page to load on mount instead of page 1 -- forwarded to
+	 * `StyledListingLayout` to restore a deep-linked `?page=N` in a single fetch
+	 * (`engine.goToPage`) rather than page-1-then-jump. Only honored with
+	 * `autoFetch` on; needs an offset-capable adapter.
+	 */
+	initialPage?: number;
 	className?: string;
 }
 
@@ -263,6 +270,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		mobileSheetFooter,
 		config,
 		autoFetch,
+		initialPage,
 		className,
 	} = props;
 
@@ -302,6 +310,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					mapZoom={map?.zoom}
 					mapControls={mapControls}
 					onMapReady={onMapReady}
+					initialPage={initialPage}
 					mobileSheetFooter={mobileSheetFooter}
 				/>
 			</ListingComponentsProvider>

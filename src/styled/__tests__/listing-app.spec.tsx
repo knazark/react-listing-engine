@@ -259,4 +259,29 @@ describe('ListingApp (styled)', () => {
 		await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
 		expect(container.querySelector('.pointer-events-none')).toBeNull();
 	});
+
+	it('initialPage loads that page directly (offset = initialPage * pageSize), not page 1', async () => {
+		const base = new InMemoryEntityAdapter<ListingRow, Filters>(rows, predicate, toLatLng);
+		const offsets: Array<number | undefined> = [];
+		const adapter = {
+			getPoints: (f: Filters, b: Parameters<typeof base.getPoints>[1]) => base.getPoints(f, b),
+			list: (f: Filters, page: Parameters<typeof base.list>[1]) => {
+				offsets.push(page.offset);
+				return base.list(f, page);
+			},
+		};
+
+		render(
+			<ListingApp<ListingRow, Filters>
+				datasets={[{ id: 'p', adapter, marker: { iconUrl: () => '' } }]}
+				config={{ debounceMs: 0, pageSize: 5 }}
+				initialPage={2}
+			/>,
+		);
+
+		// The very first list() call is the mount fetch -- it must target page 3
+		// (index 2), i.e. offset 10, rather than offset 0 / page 1.
+		await waitFor(() => expect(offsets.length).toBeGreaterThan(0));
+		expect(offsets[0]).toBe(10);
+	});
 });

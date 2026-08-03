@@ -65,6 +65,13 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	hasMap?: boolean;
 	/** Whether the layout fetches the first page itself on mount (`engine.applyFilters({})`). Defaults to `true`. */
 	autoFetch?: boolean;
+	/**
+	 * 0-based page to load on mount instead of page 1 -- for restoring a
+	 * deep-linked page (`?page=N`) in one fetch (`engine.goToPage(initialPage)`)
+	 * rather than page-1-then-jump. Only honored when `autoFetch` is on; `0`/unset
+	 * loads page 1 as before. Needs an offset-capable adapter (`PageRequest.offset`).
+	 */
+	initialPage?: number;
 	/** Forwarded verbatim to `<ListingMap center={mapCenter} />` -- see that component's "Auto-fit" doc comment. */
 	mapCenter?: LatLng;
 	/** Forwarded verbatim to `<ListingMap zoom={mapZoom} />`. */
@@ -244,6 +251,7 @@ export function StyledListingLayout<TFilters = unknown>({
 	toolbarEnd,
 	mobileAction,
 	autoFetch = true,
+	initialPage,
 	hasMap: hasMapProp,
 	mapCenter,
 	mapZoom,
@@ -337,10 +345,17 @@ export function StyledListingLayout<TFilters = unknown>({
 
 	useEffect(() => {
 		if (autoFetch === false) return;
-		void engine.applyFilters({});
+		// Numbered-pagination restore: when the consumer hydrates a deep-linked
+		// page (`initialPage > 0`, e.g. from a shared/refreshed `?page=N` URL),
+		// fetch THAT page directly via an offset request rather than page 1 --
+		// so it loads once instead of page-1-then-page-N. `initialPage` is a
+		// mount-time value, read once here.
+		if (initialPage && initialPage > 0) void engine.goToPage(initialPage);
+		else void engine.applyFilters({});
 		// `engine` is stable across re-renders of the same `<ListingProvider>`
 		// (only changes on remount), so this fires once per mounted engine when
 		// autoFetch is on.
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- initialPage read once at mount (see above)
 	}, [engine, autoFetch]);
 
 	const handleClearAll = (): void => {
