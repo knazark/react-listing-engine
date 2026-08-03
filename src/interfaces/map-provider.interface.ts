@@ -21,7 +21,16 @@ export interface MapInitOptions {
    */
   fullscreenTarget?: HTMLElement;
 }
-export interface MapHandle { readonly raw: unknown; }
+export interface MapHandle {
+  readonly raw: unknown;
+  /**
+   * The provider's NATIVE map object (`google.maps.Map` for the Google
+   * provider) when it differs from `raw` -- which may be internal state that
+   * merely CONTAINS the map. This is what `onMapReady` hands to consumers.
+   * Optional: a provider whose `raw` already IS the native map can omit it.
+   */
+  readonly nativeMap?: unknown;
+}
 export interface RenderedLayer {
   id: string;
   markers: Array<{ id: string | number; position: LatLng; iconUrl?: string; element?: HTMLElement }>;

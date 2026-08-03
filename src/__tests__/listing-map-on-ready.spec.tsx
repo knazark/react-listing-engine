@@ -47,14 +47,14 @@ afterEach(() => {
 });
 
 describe('ListingMap onMapReady', () => {
-  it('fires with the native map (MapHandle.raw) once the map has mounted', async () => {
+  it('fires with the native map (MapHandle.nativeMap) once the map has mounted', async () => {
     const map = new FakeMapProvider();
     const onMapReady = vi.fn();
 
     renderMap(map, onMapReady);
 
     await waitFor(() => expect(map.mounts.length).toBeGreaterThan(0));
-    await waitFor(() => expect(onMapReady).toHaveBeenCalledWith(map.mounts[0].raw));
+    await waitFor(() => expect(onMapReady).toHaveBeenCalledWith(map.mounts[0].nativeMap));
   });
 
   it('fires with null when the map is torn down', async () => {
@@ -63,7 +63,7 @@ describe('ListingMap onMapReady', () => {
 
     const { unmount } = renderMap(map, onMapReady);
 
-    await waitFor(() => expect(onMapReady).toHaveBeenCalledWith(map.mounts[0].raw));
+    await waitFor(() => expect(onMapReady).toHaveBeenCalledWith(map.mounts[0].nativeMap));
     unmount();
 
     expect(onMapReady).toHaveBeenLastCalledWith(null);

@@ -56,7 +56,7 @@ export class FakeMapProvider implements MapProvider {
   private readonly mapClickListeners = new Set<() => void>();
 
   mount(el: HTMLElement, opts: MapInitOptions): MapHandle {
-    const handle: MapHandle = { raw: { el, opts } };
+    const handle: MapHandle = { raw: { el, opts }, nativeMap: { el, opts } };
     this.mounts.push(handle);
     this.fullscreenTarget = opts.fullscreenTarget ?? el;
     return handle;

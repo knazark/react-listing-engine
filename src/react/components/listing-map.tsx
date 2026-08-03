@@ -84,8 +84,8 @@ export interface IListingMapProps {
    */
   mapControls?: ReactNode;
   /**
-   * Fires with the underlying map SDK's native map object (`MapHandle.raw` --
-   * the `google.maps.Map` for `googleProvider`) the moment the map finishes
+   * Fires with the underlying map SDK's native map object (the
+   * `google.maps.Map` for `googleProvider`) the moment the map finishes
    * mounting, and again with `null` when it is torn down (unmount / Strict-Mode
    * double-invoke). Typed `unknown` because this layer is provider-agnostic:
    * the consumer casts to their SDK's map type. This is the escape hatch for
@@ -349,7 +349,7 @@ export function ListingMap(props: IListingMapProps) {
       // `onMapReady`'s doc). Placed AFTER the `cancelled` guard above, so a
       // Strict-Mode-discarded mount never leaks a live map object the consumer
       // would attach overlays to and then never hear was destroyed.
-      onMapReadyRef.current?.(handle.raw);
+      onMapReadyRef.current?.(handle.nativeMap ?? handle.raw);
 
       // Kick a one-time, unbounded points load so there is data to frame
       // even though the map hasn't panned (and therefore never fired its

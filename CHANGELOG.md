@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.10.0
+
+### Minor Changes
+
+- `onMapReady` now delivers the provider's NATIVE map object (the `google.maps.Map` for the Google provider) rather than the provider's internal raw handle. Previously it passed `MapHandle.raw`, which for the Google provider is internal state that merely _contains_ the map (`{ map, ... }`) -- so consumers had to reach into `.map`. `MapHandle` gains an optional `nativeMap` field that providers populate with the bare map; `onMapReady` prefers it and falls back to `raw`.
+
 ## 0.9.0
 
 ### Minor Changes

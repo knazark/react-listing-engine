@@ -1111,7 +1111,10 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // Only the still-latest mount call ever becomes `currentRaw` -- see `mountGeneration`'s doc
       // comment for why this can't just be an unconditional assignment.
       if (myGeneration === mountGeneration) currentRaw = raw;
-      return { raw };
+      // `nativeMap` is the bare `google.maps.Map` handed to consumers via
+      // `onMapReady`; `raw` stays the internal state this provider's own methods
+      // (renderLayer/onBoundsChange/destroy) read, which merely CONTAINS it.
+      return { raw, nativeMap: raw.map };
     },
 
     renderLayer(handle: MapHandle, layer: RenderedLayer): Unsubscribe {
