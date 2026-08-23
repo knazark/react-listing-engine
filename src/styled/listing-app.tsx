@@ -102,6 +102,8 @@ export interface ListingAppProps<TFilters> {
 	search?: IStyledListingLayoutProps['search'];
 	/** Forwarded verbatim to `StyledListingLayout`'s `filterBarStart` -- extra content between the search box and the quick-filters row in the desktop filter bar (see that prop's doc comment). */
 	filterBarStart?: IStyledListingLayoutProps['filterBarStart'];
+	/** Replaces the entire results column -- see `IStyledListingLayoutProps['resultsSlot']`. */
+	resultsSlot?: IStyledListingLayoutProps['resultsSlot'];
 	toolbarEnd?: IStyledListingLayoutProps['toolbarEnd'];
 	/**
 	 * Rendered as an absolutely-positioned overlay floating over the map (e.g. zoom/fullscreen
@@ -264,6 +266,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		mobileAction,
 		search,
 		filterBarStart,
+		resultsSlot,
 		toolbarEnd,
 		mapControls,
 		onMapReady,
@@ -303,6 +306,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					className={className}
 					search={search}
 					filterBarStart={filterBarStart}
+					resultsSlot={resultsSlot}
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
 					autoFetch={autoFetch}

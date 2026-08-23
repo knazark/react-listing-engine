@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.11.0
+
+### Minor Changes
+
+- Add a `resultsSlot` prop to `ListingApp` (and the underlying `StyledListingLayout`): when set, it replaces the ENTIRE results column -- the header, the grid and the pagination -- with the given content, inside the same scrolling `.rle-list` container. It is for the states where a result list is the wrong thing to show at all rather than a different-looking one: a viewport too wide for individual results to mean anything, an onboarding prompt, a saved-search upsell. The existing `Empty` and `Loading` component slots cannot express those, because both still render inside the results column and leave its header, sort control and pager standing. Without it, consumers had to hide `.rle-list-grid`, `.rle-list-header__toolbar` and `.rle-pagination` with their own CSS, which made three internal class names part of the public contract by accident. The map is unaffected -- give a dataset an empty `getPoints` at that scale if its pins should go too. Fully backward-compatible: omit it and the ordinary results column renders as before.
+
 ## 0.10.0
 
 ### Minor Changes

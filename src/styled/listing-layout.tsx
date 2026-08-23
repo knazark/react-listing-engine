@@ -53,6 +53,25 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	filterBarStart?: ReactNode;
 	/** Extra content rendered in `.rle-list-header` (above the list), to the right of `ListingResultHeader` (e.g. a sort control + save-search). */
 	toolbarEnd?: ReactNode;
+	/**
+	 * Replaces the ENTIRE results column -- header, grid and pagination -- with
+	 * the given content, inside the same scrolling `.rle-list` container.
+	 *
+	 * For the states where a result list is the wrong thing to show at all, not
+	 * merely a different-looking one: a viewport too wide for individual results
+	 * to mean anything, an onboarding prompt, a saved-search upsell. `Empty` and
+	 * `Loading` cannot express those, because both still sit inside the results
+	 * column and leave its header, sort control and pager in place.
+	 *
+	 * Consumers previously had to hide `.rle-list-grid`,
+	 * `.rle-list-header__toolbar` and `.rle-pagination` with their own CSS,
+	 * which made three internal class names part of the public contract by
+	 * accident.
+	 *
+	 * The map is unaffected -- give a dataset an empty `getPoints` at that scale
+	 * if its pins should go too.
+	 */
+	resultsSlot?: ReactNode;
 	/** Optional mobile-header action button (e.g. "Save"), forwarded verbatim to `<MobileHeader action={...} />`. Omit to render just the search + Filters button there. */
 	mobileAction?: IBottomNavAction;
 	/**
@@ -248,6 +267,7 @@ function shallowEqualFilters(a: unknown, b: unknown): boolean {
 export function StyledListingLayout<TFilters = unknown>({
 	search,
 	filterBarStart,
+	resultsSlot,
 	toolbarEnd,
 	mobileAction,
 	autoFetch = true,
@@ -418,12 +438,16 @@ export function StyledListingLayout<TFilters = unknown>({
 				data-mobile-view={mobileView}
 			>
 				<div className="rle-list" ref={listScrollRef}>
-					<div className="rle-list-header">
-						<ListingResultHeader />
-						{toolbarEnd && <div className="rle-list-header__toolbar">{toolbarEnd}</div>}
-					</div>
-					<ListingList className="rle-list-grid" />
-					<ListingPagination />
+					{resultsSlot ?? (
+						<>
+							<div className="rle-list-header">
+								<ListingResultHeader />
+								{toolbarEnd && <div className="rle-list-header__toolbar">{toolbarEnd}</div>}
+							</div>
+							<ListingList className="rle-list-grid" />
+							<ListingPagination />
+						</>
+					)}
 				</div>
 				{hasMap && (
 					<div className="rle-map">
