@@ -72,6 +72,14 @@ export function ListingProvider<TEntity, TFilters>(props: IListingProviderCompon
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
+  // A provider resolved after this engine was built (see `attachMap`). Keyed
+  // on the LIVE props, not the frozen `boot` snapshot, because the whole point
+  // is that this value changes after boot.
+  const liveMap = listingProps.map;
+  useEffect(() => {
+    if (liveMap) engine.attachMap(liveMap);
+  }, [engine, liveMap]);
+
   useEffect(() => {
     // Strict Mode runs mount -> cleanup -> mount, and that cleanup disposes.
     // Because the engine now outlives the effect (it is built during render so

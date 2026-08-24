@@ -54,7 +54,16 @@ export class ListingEngine<TEntity, TFilters> {
   // (e.g. `ListingFilters`) can always call `engine.filters.list()` without
   // an undefined-check.
   public readonly filters: FilterRegistry<TFilters>;
-  public readonly map?: MapProvider;
+  /**
+   * Not `readonly`: a provider can arrive AFTER construction.
+   *
+   * `ListingApp` resolves an API key into a provider through a dynamic import,
+   * and since it renders before that lands (so the app can server-render), the
+   * engine is built without one. Freezing it here meant a provider that showed
+   * up a moment later was never adopted -- the map pane sat on "unavailable"
+   * forever. See `attachMap`.
+   */
+  public map?: MapProvider;
   public readonly datasets: DatasetRegistry<unknown, TFilters>;
   public readonly primaryDatasetId: string;
 
@@ -304,6 +313,24 @@ export class ListingEngine<TEntity, TFilters> {
    *  tell a live engine from one Strict Mode already tore down. */
   get isDisposed(): boolean {
     return this.disposed;
+  }
+
+  /**
+   * Adopts a map provider that was not available when this engine was built,
+   * and tells subscribers so the map pane can mount.
+   *
+   * Ignores a second call with the same provider, and refuses to swap one that
+   * is already mounted -- the handle would be orphaned. There is exactly one
+   * transition this exists for: none -> one.
+   */
+  attachMap(provider: MapProvider): void {
+    if (this.disposed || this.map === provider) return;
+    if (this.map) return;
+
+    this.map = provider;
+    // The store is what React subscribes to, so a no-op write is how a
+    // non-store change reaches the tree. Filters are re-set to themselves.
+    this.store.setFilters({} as Partial<TFilters>);
   }
 
   dispose(): void {

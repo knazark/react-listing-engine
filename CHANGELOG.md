@@ -1,5 +1,15 @@
 # react-listing-engine
 
+## 0.12.2
+
+### Patch Changes
+
+- Adopt a map provider that resolves after the engine is built -- without this the map never mounted at all.
+
+  0.12.0 removed the gate that made `ListingApp` render nothing until an API-key `map` prop resolved, because that gate is what stopped the app server-rendering. But `ListingProvider` freezes its props at construction, so the engine was built with no provider and never learned about the one the dynamic import delivered a moment later. `engine.map` stayed undefined for the life of the page and the map pane sat on its fallback.
+
+  `ListingEngine.map` is no longer `readonly`, and `attachMap()` performs the one transition that matters -- none to one -- notifying subscribers so the pane mounts. It ignores a repeat call and refuses to swap a provider that is already mounted, which would orphan the handle.
+
 ## 0.12.1
 
 ### Patch Changes
