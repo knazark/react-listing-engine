@@ -4,16 +4,17 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
 	composeListingProviders,
+	type FilterRegistry,
+	type ListingProviderMod,
 	withConfig,
 	withDataset,
 	withFilters,
 	withInitialFilters,
+	withInitialResults,
 	withMap,
-	type FilterRegistry,
-	type ListingProviderMod,
 } from '~/core';
 import { ListingEventType } from '~/enums';
-import type { DatasetDefinition, IListingConfigOptions, LatLng, MapProvider } from '~/interfaces';
+import type { DatasetDefinition, IListingConfigOptions, LatLng, MapProvider, Page } from '~/interfaces';
 import { ListingComponentsProvider, ListingProvider, useListingEvent, type IListingComponents } from '~/react';
 
 import type { IBottomNavAction } from './bottom-nav';
@@ -76,6 +77,16 @@ export interface ListingAppProps<TFilters> {
 	 * reads `window.location` itself, it only accepts filters as a prop.
 	 */
 	initialFilters?: TFilters;
+	/**
+	 * First page of results, so the very first render already has rows.
+	 *
+	 * For server rendering: hand over the page the server already fetched and
+	 * the list renders it immediately -- on the server, and again on the client
+	 * as hydration -- instead of blanking while an adapter call goes out. The
+	 * mount fetch is skipped when this is set, so the seeded rows are not
+	 * replaced a moment later by an identical request.
+	 */
+	initialResults?: Page<unknown>;
 	/**
 	 * EVENT OUT: fires with the engine's current filters (`TFilters`, not the
 	 * store's `DeepReadonly` wrapper) every time `ListingEventType.FiltersChanged`
@@ -262,6 +273,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		map,
 		components,
 		initialFilters,
+		initialResults,
 		onFiltersChange,
 		mobileAction,
 		search,
@@ -277,9 +289,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		className,
 	} = props;
 
-	const { ready, provider } = useResolvedMap(map);
-
-	if (!ready) return null;
+	const { provider } = useResolvedMap(map);
 
 	const mods: ListingProviderMod<TFilters>[] = [];
 	for (const dataset of datasets) {
@@ -293,6 +303,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 	// that (for an unconstrained generic) TS can't prove assignable back into
 	// `mods: ListingProviderMod<TFilters>[]`. Pinning the type argument sidesteps it.
 	if (initialFilters) mods.push(withInitialFilters<TFilters>(initialFilters));
+	if (initialResults) mods.push(withInitialResults<TFilters>(initialResults));
 	if (config) mods.push(withConfig(config));
 
 	const composed = composeListingProviders<TFilters>(...mods);
@@ -309,7 +320,15 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					resultsSlot={resultsSlot}
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
-					autoFetch={autoFetch}
+					// Seeded results ARE the first page, so fetching it again on mount
+					// would swap identical rows in and flash the list for nothing.
+					autoFetch={autoFetch ?? initialResults == null}
+					// From the PROP, not from whether the provider has resolved. The
+					// provider arrives via a dynamic import, so deriving it from
+					// `engine.map` would render list-only first and switch to the split
+					// layout mid-load -- a reflow, and a hydration mismatch for a server
+					// render. Asking for a map is a layout decision; having one yet is not.
+					hasMap={map != null}
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 					mapControls={mapControls}

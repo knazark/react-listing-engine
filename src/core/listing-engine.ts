@@ -19,6 +19,8 @@ export interface ListingEngineOptions<TFilters> {
   config?: Partial<IListingConfigOptions>;
   map?: MapProvider;
   initialFilters?: TFilters;
+  /** First page to start from -- see `ListingStoreInit.results`. */
+  initialResults?: Page<unknown>;
   primaryDatasetId?: string;
 }
 
@@ -57,6 +59,8 @@ export class ListingEngine<TEntity, TFilters> {
   public readonly primaryDatasetId: string;
 
   private readonly store: ListingStore<TEntity, TFilters>;
+
+  private disposed = false;
   private readonly emitter = new TypedEmitter<ListingEvent<TEntity, TFilters>>();
   private readonly config: ListingConfig;
 
@@ -103,6 +107,7 @@ export class ListingEngine<TEntity, TFilters> {
     this.store = new ListingStore<TEntity, TFilters>({
       filters: options.initialFilters ?? ({} as TFilters),
       mode: this.config.options.pagination,
+      results: options.initialResults as Page<TEntity> | undefined,
     });
   }
 
@@ -294,10 +299,18 @@ export class ListingEngine<TEntity, TFilters> {
     return this.emitter.on(type, cb);
   }
 
+  /** True once `dispose()` has run. A disposed engine's emitter is dead, so it
+   *  can never drive a UI again -- see `ListingProvider`, which uses this to
+   *  tell a live engine from one Strict Mode already tore down. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
   dispose(): void {
     this.clearDebounce();
     this.emitter.dispose();
     this.mapHandle = null;
+    this.disposed = true;
   }
 
   private async runQuery(token: number): Promise<void> {

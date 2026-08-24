@@ -1,5 +1,25 @@
 # react-listing-engine
 
+## 0.12.0
+
+### Minor Changes
+
+- Server rendering: the app can now render real results to HTML, and hydrate them in place.
+
+  Three things stood in the way, and all three are fixed.
+
+  `ListingProvider` built its engine in a `useEffect` and returned `null` until that ran, which made every consumer client-only by construction -- on a server there are no effects, so the whole tree rendered to nothing. The engine is now constructed during render; the constructor is pure (store, registries, config, no browser API), and everything with a side effect still happens in the effect.
+
+  `ListingApp` returned `null` until an API-key `map` prop resolved to a provider through a dynamic import. It now renders without waiting: `ListingMap` already tolerates a missing provider, and because the resolution state starts `false` on both the server and the client's first render, the markup matches and hydration has nothing to reconcile. `hasMap` is derived from the PROP rather than from whether the provider resolved -- otherwise the layout renders list-only and switches to split mid-load, which is both a reflow and a hydration mismatch.
+
+  New `initialResults` on `ListingApp` (and `withInitialResults` for hand-composed providers) seeds the first page, so the first render already has rows instead of blanking while an adapter call goes out -- an adapter call being something a server render cannot do. `autoFetch` now defaults to off when results are seeded, so the identical page is not refetched a moment later.
+
+  Two changes worth checking before upgrading:
+
+  `ListingEngine` gains `isDisposed`, and `ListingProvider` uses it to replace an engine that React Strict Mode has already torn down. Because the engine now outlives the effect, Strict Mode's mount/cleanup/mount would otherwise leave a disposed engine -- emitter dead -- in context.
+
+  `ListingStoreInit` is now generic over `<TEntity, TFilters>` rather than `<TFilters>`, so it can describe the seeded page. This is a type-only break, and only for code that names that type directly.
+
 ## 0.11.0
 
 ### Minor Changes

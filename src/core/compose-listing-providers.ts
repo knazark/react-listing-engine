@@ -1,4 +1,4 @@
-import type { DatasetDefinition, IListingConfigOptions, MapProvider } from '~/interfaces';
+import type { DatasetDefinition, IListingConfigOptions, MapProvider, Page } from '~/interfaces';
 
 import { DatasetRegistry, FilterRegistry } from './registries';
 import type { UrlSyncController } from './strategies';
@@ -26,6 +26,7 @@ export interface IListingProviderProps<TFilters> {
   map?: MapProvider;
   urlSync?: UrlSyncController<TFilters>;
   initialFilters?: TFilters;
+  initialResults?: Page<unknown>;
   primaryDatasetId?: string;
 }
 
@@ -93,6 +94,19 @@ export const withInitialFilters =
   <TFilters>(filters: TFilters): ListingProviderMod<TFilters> =>
   props => {
     props.initialFilters = filters;
+  };
+
+/**
+ * Seeds the first page so the initial render already has results.
+ *
+ * For server-rendered consumers: pair with `autoFetch={false}` (or the styled
+ * layout, which skips its mount fetch automatically when seeded) so the list
+ * hydrates from these rows instead of blanking and refetching.
+ */
+export const withInitialResults =
+  <TFilters>(page: Page<unknown>): ListingProviderMod<TFilters> =>
+  props => {
+    props.initialResults = page;
   };
 
 export const withPrimaryDataset =

@@ -24,9 +24,18 @@ export interface ListingState<TEntity, TFilters> {
   points: Readonly<Record<string, ReadonlyArray<MapPoint<unknown>>>>;
 }
 
-export interface ListingStoreInit<TFilters> {
+export interface ListingStoreInit<TEntity, TFilters> {
   filters: TFilters;
   mode?: PaginationMode;
+  /**
+   * First page to start from, instead of the empty list a fetch would replace.
+   *
+   * Exists so a consumer that already has page one -- typically because it
+   * rendered on a server -- can hand it over and have the FIRST render carry
+   * real results. Without it the only way to fill the list is the adapter, and
+   * an adapter call cannot happen during a server render.
+   */
+  results?: Page<TEntity>;
 }
 
 type Listener = () => void;
@@ -47,10 +56,12 @@ export class ListingStore<TEntity, TFilters> {
   private state: ListingState<TEntity, TFilters>;
   private readonly listeners = new Set<Listener>();
 
-  constructor(init: ListingStoreInit<TFilters>) {
+  constructor(init: ListingStoreInit<TEntity, TFilters>) {
     this.state = this.freezeState({
       filters: { ...init.filters },
-      results: { items: [], nextCursor: null },
+      results: init.results
+        ? { items: [...init.results.items], nextCursor: init.results.nextCursor, total: init.results.total }
+        : { items: [], nextCursor: null },
       bounds: null,
       selection: null,
       hovered: null,
