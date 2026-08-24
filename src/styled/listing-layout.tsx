@@ -97,6 +97,14 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	mapZoom?: number;
 	/** Forwarded verbatim to `<ListingMap mapControls={mapControls} />` -- see that prop's doc comment. */
 	mapControls?: ReactNode;
+	/**
+	 * A map WAS asked for but its provider has not resolved yet.
+	 *
+	 * Only `ListingApp` knows this: it resolves an API key into a provider
+	 * through a dynamic import. Without it the map pane cannot tell "this app
+	 * has no map" from "the map is still loading", and says the former.
+	 */
+	mapPending?: boolean;
 	/** Forwarded verbatim to `<ListingMap onMapReady={onMapReady} />` -- the native-map escape hatch; see that prop's doc comment. */
 	onMapReady?: (map: unknown) => void;
 	/**
@@ -119,6 +127,13 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 
 /** Centered, muted fallback shown in the map region when no `MapProvider` is configured. */
 const MAP_FALLBACK = <div className="rle-empty">Map unavailable</div>;
+
+/** Shown in the map's place while a REQUESTED provider is still resolving --
+ *  distinct from `MAP_FALLBACK`, which states the map is unavailable. Since
+ *  the app renders before the provider's dynamic import lands (so it can
+ *  server-render), "unavailable" would be shown for a second on every load of
+ *  a perfectly working map. */
+const MAP_PENDING = <div className="rle-map-pending" />;
 
 /**
  * Tracks whether a horizontally-scrollable element is at its left/right edges,
@@ -276,6 +291,7 @@ export function StyledListingLayout<TFilters = unknown>({
 	mapCenter,
 	mapZoom,
 	mapControls,
+	mapPending,
 	onMapReady,
 	mobileSheetFooter,
 	className,
@@ -454,7 +470,7 @@ export function StyledListingLayout<TFilters = unknown>({
 						<ListingMap
 							center={mapCenter}
 							zoom={mapZoom}
-							fallback={MAP_FALLBACK}
+							fallback={mapPending ? MAP_PENDING : MAP_FALLBACK}
 							mapControls={mapControls}
 							onMapReady={onMapReady}
 						/>

@@ -332,6 +332,9 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 					mapControls={mapControls}
+					// Asked for, not yet arrived -- so the pane waits quietly instead of
+					// announcing the map is unavailable on every load.
+					mapPending={map != null && provider == null}
 					onMapReady={onMapReady}
 					initialPage={initialPage}
 					mobileSheetFooter={mobileSheetFooter}

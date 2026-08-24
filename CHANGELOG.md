@@ -1,5 +1,15 @@
 # react-listing-engine
 
+## 0.12.1
+
+### Patch Changes
+
+- Stop the map pane announcing "Map unavailable" while its provider is still loading.
+
+  Since 0.12.0 the app renders before an API-key `map` prop resolves to a provider -- that is what lets it server-render. But `ListingMap`'s fallback means "this app has no map", and with no way to tell that from "the map has not arrived yet" it was shown on every load of a perfectly working map, for as long as the dynamic import took.
+
+  `StyledListingLayout` gains `mapPending`, which `ListingApp` sets while a requested provider is unresolved. The pane then holds its space quietly instead of making a claim that is wrong by the time it is read.
+
 ## 0.12.0
 
 ### Minor Changes
