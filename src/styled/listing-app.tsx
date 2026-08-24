@@ -332,9 +332,14 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					mapCenter={map?.center}
 					mapZoom={map?.zoom}
 					mapControls={mapControls}
-					// Asked for, not yet arrived -- so the pane waits quietly instead of
-					// announcing the map is unavailable on every load.
-					mapPending={map != null && provider == null}
+					// Whether a map was ASKED FOR -- not whether this component's local
+					// provider has resolved. The pane reads `engine.map`, which is set
+					// by `attachMap` in an EFFECT, so it lags the local provider by a
+					// frame. Keying on the local one made `mapPending` go false while
+					// the engine still had nothing, and the pane announced the map was
+					// unavailable in that gap. If a map was requested, the honest state
+					// until the engine actually holds one is "pending".
+					mapPending={map != null}
 					onMapReady={onMapReady}
 					initialPage={initialPage}
 					mobileSheetFooter={mobileSheetFooter}

@@ -1,5 +1,13 @@
 # react-listing-engine
 
+## 0.12.3
+
+### Patch Changes
+
+- Close the one-frame gap where the map pane still announced "Map unavailable".
+
+  `mapPending` was keyed on `ListingApp`'s local provider, but the pane reads `engine.map`, which `attachMap` sets in an effect -- so it lags by a frame. The moment the dynamic import resolved, `mapPending` went false while the engine still held nothing, and the fallback rendered in that gap. It now means "a map was ASKED for", which is the question the pane actually needs answered: if one was requested, the honest state until the engine holds it is pending, not unavailable.
+
 ## 0.12.2
 
 ### Patch Changes
