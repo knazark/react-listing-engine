@@ -1,5 +1,13 @@
 # react-listing-engine
 
+## 0.12.4
+
+### Patch Changes
+
+- The list's empty state now requires a COMPLETED query -- an unseeded boot renders `Loading`, never `Empty`.
+
+  `ListingList` showed the injected `Empty` ("No results") whenever `items` was empty and nothing was in flight -- which is also the state of a freshly-booted, unseeded engine that has not issued its first query yet (waiting on map bounds, for instance). Server-rendered, that claim reached crawlers as the page's actual content. The store's pagination state gains `loaded`: false until a results commit (`setResults`/`appendResults`), true from a seeded init (a server already ran that query), never reset. `ListingList` renders `Loading` while `!loaded`, and `Empty` is reserved for a committed answer that really contained nothing.
+
 ## 0.12.3
 
 ### Patch Changes

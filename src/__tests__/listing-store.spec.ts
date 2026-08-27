@@ -23,7 +23,7 @@ describe('ListingStore', () => {
       bounds: null,
       selection: null,
       hovered: null,
-      pagination: { mode: PaginationMode.Paged, loading: false, pageIndex: 0 },
+      pagination: { mode: PaginationMode.Paged, loading: false, loaded: false, pageIndex: 0 },
       layers: {},
       points: {},
     });
@@ -32,6 +32,28 @@ describe('ListingStore', () => {
   it('respects an explicit init mode', () => {
     const store = new ListingStore<{ id: number }, object>({ filters: {}, mode: PaginationMode.Infinite });
     expect(store.getState().pagination.mode).toBe(PaginationMode.Infinite);
+  });
+
+  it('tracks `loaded`: false until a commit, true on setResults/appendResults, true from a seeded init', () => {
+    // Unseeded: nothing has ever committed — an empty list is "not asked
+    // yet", which is what lets renderers withhold their empty state.
+    const store = new ListingStore<{ id: number }, object>({ filters: {} });
+    expect(store.getState().pagination.loaded).toBe(false);
+
+    // A commit — even an EMPTY page — is a completed answer.
+    store.setResults({ items: [], nextCursor: null, total: 0 });
+    expect(store.getState().pagination.loaded).toBe(true);
+
+    const infinite = new ListingStore<{ id: number }, object>({ filters: {}, mode: PaginationMode.Infinite });
+    infinite.appendResults({ items: [{ id: 1 }], nextCursor: null });
+    expect(infinite.getState().pagination.loaded).toBe(true);
+
+    // Seeded results ARE a committed first page (the server ran the query).
+    const seeded = new ListingStore<{ id: number }, object>({
+      filters: {},
+      results: { items: [{ id: 1 }], nextCursor: null, total: 1 },
+    });
+    expect(seeded.getState().pagination.loaded).toBe(true);
   });
 
   it('setResults replaces the results page wholesale (paged mode)', () => {
@@ -94,7 +116,7 @@ describe('ListingStore', () => {
 
     expect(store.getState().bounds).toEqual({ west: 1, south: 2, east: 3, north: 4 });
     expect(store.getState().selection).toBe(42);
-    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 0 });
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, loaded: false, pageIndex: 0 });
     expect(cb).toHaveBeenCalledTimes(3);
   });
 
@@ -104,14 +126,14 @@ describe('ListingStore', () => {
     store.subscribe(cb);
 
     store.setPageIndex(3);
-    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: false, pageIndex: 3 });
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: false, loaded: false, pageIndex: 3 });
     expect(cb).toHaveBeenCalledTimes(1);
 
     store.setLoading(true); // and the reverse: setLoading leaves pageIndex alone
-    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 3 });
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, loaded: false, pageIndex: 3 });
 
     store.setPageIndex(0);
-    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, pageIndex: 0 });
+    expect(store.getState().pagination).toEqual({ mode: PaginationMode.Paged, loading: true, loaded: false, pageIndex: 0 });
     expect(cb).toHaveBeenCalledTimes(3);
   });
 
@@ -269,7 +291,7 @@ describe('ListingStore nested immutability (getState() must not expose a mutable
     // The old snapshot's nested containers are untouched by later mutator calls.
     expect(before.filters).toEqual({ q: 'a' });
     expect(before.layers).toEqual({ markers: true });
-    expect(before.pagination).toEqual({ mode: PaginationMode.Paged, loading: false, pageIndex: 0 });
+    expect(before.pagination).toEqual({ mode: PaginationMode.Paged, loading: false, loaded: false, pageIndex: 0 });
   });
 
   it('appendResults produces a fresh, independently-frozen items array rather than mutating the previous one', () => {

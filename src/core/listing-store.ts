@@ -17,7 +17,16 @@ export interface ListingState<TEntity, TFilters> {
   // numbered (Paged-mode) pagination — written by `ListingEngine#goToPage`
   // and reset to 0 whenever a fresh filter query lands, so a filter change
   // always reads as "back on page 1". Inert in Infinite mode (never leaves 0).
-  pagination: { mode: PaginationMode; loading: boolean; pageIndex: number };
+  //
+  // `loaded` is whether the results list has EVER been committed to — by a
+  // completed query (setResults/appendResults) or by seeding the store with
+  // server-rendered results. It is what lets a renderer tell "settled with
+  // nothing" apart from "nothing has been asked yet": before it flips true,
+  // an empty `results.items` is NOT a verified absence and must never render
+  // as one (an unseeded boot otherwise claims "no results" before the first
+  // query is even issued). Never reset — one commit means the emptiness of
+  // any later state is a real answer.
+  pagination: { mode: PaginationMode; loading: boolean; loaded: boolean; pageIndex: number };
   layers: Record<string, boolean>;
   // Per-dataset map points, populated by ListingEngine#loadPoints. Keyed by
   // DatasetDefinition.id, same key space as `layers`.
@@ -65,7 +74,9 @@ export class ListingStore<TEntity, TFilters> {
       bounds: null,
       selection: null,
       hovered: null,
-      pagination: { mode: init.mode ?? PaginationMode.Paged, loading: false, pageIndex: 0 },
+      // Seeded results ARE a committed first page (a server already ran the
+      // query), so a seeded store boots `loaded`.
+      pagination: { mode: init.mode ?? PaginationMode.Paged, loading: false, loaded: init.results != null, pageIndex: 0 },
       layers: {},
       points: {},
     });
@@ -85,6 +96,9 @@ export class ListingStore<TEntity, TFilters> {
   setResults(page: Page<TEntity>): void {
     this.setState({
       results: { items: [...page.items], nextCursor: page.nextCursor, total: page.total },
+      // Every commit path flips `loaded` here, at the chokepoint, rather than
+      // in each engine query method — a commit IS the definition of loaded.
+      pagination: { ...this.state.pagination, loaded: true },
     });
   }
 
@@ -95,6 +109,7 @@ export class ListingStore<TEntity, TFilters> {
         nextCursor: page.nextCursor,
         total: page.total,
       },
+      pagination: { ...this.state.pagination, loaded: true },
     });
   }
 

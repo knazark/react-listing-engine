@@ -21,9 +21,13 @@ function deriveItemId(item: unknown, index: number): EntityId {
 }
 
 /**
- * Structure-only results list. Renders the injected `Loading` while the
- * first page is still in flight, `Empty` once settled with nothing, and
- * otherwise one injected `Card` per result item.
+ * Structure-only results list. Renders the injected `Loading` until the list
+ * has something to say -- both while a page is in flight AND before any
+ * query has ever committed (`pagination.loaded`): an unseeded boot is "not
+ * asked yet", and rendering `Empty` for it would claim a verified absence
+ * that no query produced (server-rendered, that claim even reaches crawlers).
+ * `Empty` is reserved for a COMPLETED query with nothing in it; otherwise
+ * one injected `Card` renders per result item.
  *
  * `onSelect` routes through `engine.selectPoint(engine.primaryDatasetId, id)`
  * -- the only mutator for `state.selection` -- rather than a list-only
@@ -40,7 +44,7 @@ export function ListingList({ className }: { className?: string } = {}) {
   const { pagination, selection } = useListingState();
   const { Card, Empty, Loading } = useListingComponents();
 
-  if (pagination.loading && items.length === 0) {
+  if (items.length === 0 && (pagination.loading || !pagination.loaded)) {
     return <Loading />;
   }
 

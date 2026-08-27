@@ -94,15 +94,38 @@ afterEach(() => {
 });
 
 describe('ListingList', () => {
-  it('renders <Empty/> when there are no results yet', async () => {
+  it('renders <Loading/> before any query has committed -- an unasked list is not empty', async () => {
     render(
       <Wrapper>
         <ListingList />
       </Wrapper>,
     );
 
-    await waitFor(() => expect(screen.getByText('No results')).toBeInTheDocument());
+    // Nothing has queried yet (no filters applied, no bounds): the list must
+    // NOT claim "no results" -- server-rendered, that claim reaches crawlers.
+    await waitFor(() => expect(screen.getByText('Loading…')).toBeInTheDocument());
+    expect(screen.queryByText('No results')).toBeNull();
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('renders <Empty/> only after a COMPLETED query with nothing in it', async () => {
+    function FilterControls() {
+      const engine = useListing();
+      return <button onClick={() => void engine.applyFilters({ max: 1 })}>load</button>;
+    }
+
+    render(
+      <Wrapper>
+        <FilterControls />
+        <ListingList />
+      </Wrapper>,
+    );
+
+    // max=1 matches no fixture row (cheapest is 5): the query completes with
+    // zero items, and only THEN is the empty state a verified answer.
+    fireEvent.click(screen.getByText('load'));
+    await waitFor(() => expect(screen.getByText('No results')).toBeInTheDocument());
+    expect(screen.queryByText('Loading…')).toBeNull();
   });
 
   it('renders one injected Card per result item, and toggles selected via onSelect', async () => {
