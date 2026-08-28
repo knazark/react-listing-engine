@@ -259,10 +259,12 @@ export class ListingEngine<TEntity, TFilters> {
   // flight the previous map already served.
   setMapHandle(handle: MapHandle | null): void {
     this.mapHandle = handle;
-    if (!handle || !this.pendingFit || !this.map) return;
+    if (!handle || !this.pendingFit) return;
+    // Cleared BEFORE the replay, which re-enters `fitBounds` -- now with a
+    // registered handle, so it delegates instead of re-queueing.
     const { bounds, options } = this.pendingFit;
     this.pendingFit = null;
-    this.map.fitBounds(handle, bounds, options);
+    this.fitBounds(bounds, options);
   }
 
   /**

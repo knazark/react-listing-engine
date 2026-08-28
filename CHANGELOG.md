@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.12.6
+
+### Patch Changes
+
+- Internal cleanup: the pending-fit replay in `setMapHandle` delegates through `fitBounds` itself instead of duplicating the provider call, so the engine has exactly one delegation site. No behavior change.
+
 ## 0.12.5
 
 ### Patch Changes
