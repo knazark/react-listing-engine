@@ -1,5 +1,13 @@
 # react-listing-engine
 
+## 0.12.5
+
+### Patch Changes
+
+- `fitBounds` before the map handle registers is queued (last one wins) and applied the moment the handle mounts, instead of being silently dropped.
+
+  A destination chosen while the map SDK was still loading used to vanish: the flight no-opped, the map settled on its configured initial view, and a consumer syncing bounds into URL/filter state recorded that default view as if the visitor had chosen it. The queued request now frames the view the map actually opens on; a later remount does not replay it.
+
 ## 0.12.4
 
 ### Patch Changes

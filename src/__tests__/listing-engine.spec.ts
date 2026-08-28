@@ -686,12 +686,49 @@ describe('ListingEngine', () => {
       engine.dispose();
     });
 
-    it('is a safe no-op before a handle is registered, and again after setMapHandle(null)', () => {
+    it('queues a pre-mount request and applies it when the handle registers', () => {
       const map = new FakeMapProvider();
+      const fitSpy = vi.spyOn(map, 'fitBounds');
       const engine = makeEngineWithMap(map);
 
-      expect(() => engine.fitBounds(bounds)).not.toThrow();
+      // No handle yet (the map SDK is still loading): nothing to delegate to,
+      // but the request must NOT be dropped -- a destination selected during
+      // the map's boot used to vanish, leaving the map to open on its
+      // configured initial view as if nothing had been chosen.
+      expect(() => engine.fitBounds(bounds, { animate: true })).not.toThrow();
       expect(map.fitBoundsCalls).toEqual([]);
+
+      const handle = map.mount(document.createElement('div'), {});
+      engine.setMapHandle(handle);
+
+      // Applied on registration, with the original options.
+      expect(fitSpy).toHaveBeenCalledTimes(1);
+      expect(fitSpy).toHaveBeenCalledWith(handle, bounds, { animate: true });
+      engine.dispose();
+    });
+
+    it('keeps only the LAST pre-mount request, and consumes it on first registration', () => {
+      const map = new FakeMapProvider();
+      const engine = makeEngineWithMap(map);
+      const other: Bounds = { west: -98, south: 30, east: -97, north: 31 };
+
+      engine.fitBounds(bounds);
+      engine.fitBounds(other); // the visitor changed their mind pre-mount -- last wins
+
+      const handle = map.mount(document.createElement('div'), {});
+      engine.setMapHandle(handle);
+      expect(map.fitBoundsCalls).toEqual([other]);
+
+      // Consumed: a remount must not replay a request the map already served.
+      engine.setMapHandle(null);
+      engine.setMapHandle(handle);
+      expect(map.fitBoundsCalls).toEqual([other]);
+      engine.dispose();
+    });
+
+    it('never delegates into an unmounted map: a post-unmount request waits for the next handle', () => {
+      const map = new FakeMapProvider();
+      const engine = makeEngineWithMap(map);
 
       const handle = map.mount(document.createElement('div'), {});
       engine.setMapHandle(handle);
@@ -699,8 +736,12 @@ describe('ListingEngine', () => {
       expect(map.fitBoundsCalls).toEqual([bounds]);
 
       engine.setMapHandle(null); // the map component unmounted -- its handle is gone
-      engine.fitBounds(bounds);
-      expect(map.fitBoundsCalls).toEqual([bounds]); // unchanged -- no delegation into a destroyed map
+      const other: Bounds = { west: -98, south: 30, east: -97, north: 31 };
+      engine.fitBounds(other);
+      expect(map.fitBoundsCalls).toEqual([bounds]); // no delegation into a destroyed map...
+
+      engine.setMapHandle(handle); // ...but the request survives to the next mount
+      expect(map.fitBoundsCalls).toEqual([bounds, other]);
       engine.dispose();
     });
 

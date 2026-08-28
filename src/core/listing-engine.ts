@@ -99,6 +99,13 @@ export class ListingEngine<TEntity, TFilters> {
   // methods (`zoomIn`/`zoomOut`/`toggleFullscreen`).
   private mapHandle: MapHandle | null = null;
 
+  // The last `fitBounds` request made while no handle was registered — the
+  // map SDK still loading, or the map component between unmounts. Applied
+  // (and cleared) by `setMapHandle` the moment a handle registers, so a
+  // destination chosen during the map's boot frames the view the map actually
+  // opens on instead of vanishing — see `fitBounds`.
+  private pendingFit: { bounds: Bounds; options?: FitBoundsOptions } | null = null;
+
   constructor(options: ListingEngineOptions<TFilters>) {
     this.datasets = options.datasets;
     this.filters = options.filters ?? new FilterRegistry<TFilters>();
@@ -244,15 +251,34 @@ export class ListingEngine<TEntity, TFilters> {
   // Registers (or, with `null`, clears) the currently-mounted map's handle —
   // called ONLY by the map component's mount effect / cleanup (`ListingMap`),
   // never by consumers. See the `mapHandle` field comment.
+  //
+  // Registration also flushes a queued `fitBounds` (see `pendingFit`): the
+  // request is applied to the fresh handle right after the provider mounts,
+  // so the map opens on the requested view rather than its configured
+  // initial one. Consumed exactly once — a later remount must not replay a
+  // flight the previous map already served.
   setMapHandle(handle: MapHandle | null): void {
     this.mapHandle = handle;
+    if (!handle || !this.pendingFit || !this.map) return;
+    const { bounds, options } = this.pendingFit;
+    this.pendingFit = null;
+    this.map.fitBounds(handle, bounds, options);
   }
 
   /**
    * Flies the currently-mounted map to `bounds` via
    * `MapProvider.fitBounds(handle, bounds)`. Safe no-op when no `MapProvider`
-   * is configured OR no map is currently mounted (no registered handle) —
-   * the same tolerance as the provider's own `zoomIn`/`zoomOut`.
+   * is configured — the same tolerance as the provider's own
+   * `zoomIn`/`zoomOut`.
+   *
+   * With a provider but NO registered handle (the map SDK still loading, or
+   * the map component between unmounts), the request is QUEUED — last one
+   * wins — and applied by `setMapHandle` the moment a handle registers.
+   * Dropping it instead silently discarded any destination selected during
+   * the map's multi-second boot: the flight never happened, the map settled
+   * on its configured initial view, and a consumer syncing bounds into
+   * URL/filter state then recorded that default view as if the visitor had
+   * chosen it.
    *
    * Deliberately does NOT write `state.bounds` or emit `BoundsChanged`
    * itself: the map SDK fires its own bounds-changed event once the view
@@ -263,7 +289,11 @@ export class ListingEngine<TEntity, TFilters> {
    * `bounds` here would briefly publish a viewport the map never shows).
    */
   fitBounds(bounds: Bounds, options?: FitBoundsOptions): void {
-    if (!this.map || !this.mapHandle) return;
+    if (!this.map) return;
+    if (!this.mapHandle) {
+      this.pendingFit = { bounds, options };
+      return;
+    }
     this.map.fitBounds(this.mapHandle, bounds, options);
   }
 
