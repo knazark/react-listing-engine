@@ -38,6 +38,28 @@ describe('MapProvider contract (FakeMapProvider)', () => {
     expect(provider.renderedLayers).toEqual([layerB]);
   });
 
+  it('rendering a layer id again replaces its entry in place and voids the superseded unsubscribe (reconciled, not rebuilt)', async () => {
+    const provider = new FakeMapProvider();
+    const handle = await provider.mount(document.createElement('div'), { apiKey: 'k' });
+    const first = makeLayer({ id: 'properties' });
+    const other = makeLayer({ id: 'businesses' });
+    const second = makeLayer({ id: 'properties' });
+
+    const unsubscribeFirst = provider.renderLayer(handle, first);
+    provider.renderLayer(handle, other);
+    const unsubscribeSecond = provider.renderLayer(handle, second);
+
+    expect(provider.renderedLayers).toEqual([second, other]);
+    expect(provider.removedLayers).toEqual([]);
+
+    unsubscribeFirst();
+    expect(provider.renderedLayers).toEqual([second, other]);
+
+    unsubscribeSecond();
+    expect(provider.renderedLayers).toEqual([other]);
+    expect(provider.removedLayers).toEqual([second]);
+  });
+
   it('onBoundsChange registers a callback that emitBounds triggers with the exact bounds', async () => {
     const provider = new FakeMapProvider();
     const handle = await provider.mount(document.createElement('div'), { apiKey: 'k' });

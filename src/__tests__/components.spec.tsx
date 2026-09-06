@@ -615,9 +615,12 @@ describe('ListingMap', () => {
       const latest = map.renderedLayers[map.renderedLayers.length - 1];
       expect(latest.markers.length).toBe(2);
     });
-    // Old layer subscription for the previous point set was torn down (unsub called on re-render).
-    expect(map.removedLayers.length).toBeGreaterThan(0);
-    expect(map.renderedLayers.length).toBeGreaterThanOrEqual(renderCountBefore);
+    // The reload handed the SAME layer id to the provider again -- reconciled in place, never
+    // torn down first (tearing it down between renders is what blinked every marker on every
+    // map settle): one live entry for 'p', nothing in removedLayers.
+    expect(map.removedLayers).toHaveLength(0);
+    expect(map.renderedLayers.filter(layer => layer.id === 'p')).toHaveLength(1);
+    expect(map.renderedLayers.length).toBe(renderCountBefore);
   });
 
   it('includes dataset.marker.element in rendered layer markers when the dataset provides one', async () => {

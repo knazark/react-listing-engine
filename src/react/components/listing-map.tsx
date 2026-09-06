@@ -108,15 +108,22 @@ export interface IListingMapProps {
  *   rule as `DatasetRegistry.visibleIds()`), looking up each dataset's
  *   `MarkerRenderer` via `engine.datasets.get(id)` (see the Step 0 note on
  *   `ListingEngine.datasets` in the task report). Each marker's click routes
- *   to `engine.selectPoint(datasetId, markerId)`.
- * - Mount effect (declared SECOND): awaits `provider.mount(container, {
+ *   to `engine.selectPoint(datasetId, markerId)`. The layer is handed to
+ *   `provider.renderLayer` AGAIN on every change, never torn down first: a
+ *   provider reconciles a layer id against its previous render (a kept marker
+ *   keeps its DOM node), so a points reload does not blink the markers. A
+ *   dataset that stops rendering (gone from `state.points`, hidden via
+ *   `toggleLayer`) is torn down right there.
+ * - Layer-teardown effect (declared SECOND): tears every live layer down when
+ *   the map goes away (unmount, or a provider/engine change) -- and only then.
+ * - Mount effect (declared THIRD): awaits `provider.mount(container, {
  *   center, zoom, fullscreenTarget })`, stashes the resulting `MapHandle` in a ref, and wires
  *   `provider.onBoundsChange(handle, b => engine.loadPoints(b))`. `fullscreenTarget` is the outer
  *   wrapper (`wrapperRef`), not `container` itself -- see "`mapControls`" below for why. Cleanup
  *   unsubscribes bounds and calls `provider.destroy(handle)`. Also kicks a
  *   one-time, unbounded `engine.loadPoints(WORLD_BOUNDS)` right after the
  *   handle is ready -- see "Auto-fit" below for why.
- * - Auto-fit effect (declared THIRD): frames the map to its own data, once,
+ * - Auto-fit effect (declared FOURTH): frames the map to its own data, once,
  *   the first time there is data to frame -- see "Auto-fit" below.
  *
  * ## Auto-fit
@@ -259,14 +266,22 @@ export function ListingMap(props: IListingMapProps) {
 
   const provider = engine.map;
 
-  // Declared BEFORE the mount effect below so its cleanup (layer unsubs)
-  // runs on unmount BEFORE the mount effect's cleanup (`provider.destroy`)
-  // -- see the class doc comment above for why ordering matters here.
+  // Live layer renders by dataset id -- the unsubscribe each `provider.renderLayer`
+  // call returned. Kept in a ref, not effect-local, so a points reload hands the
+  // layer to the provider AGAIN without tearing the previous render down first:
+  // a provider reconciles a layer id against its previous render (a kept marker
+  // keeps its DOM node -- see the Google provider's `reconcileOverlayMarkers`)
+  // and the superseded unsubscribe is a guarded no-op. An effect-local cleanup
+  // ran on every deps change instead, so every map settle rebuilt every marker
+  // and blinked them all.
+  const layerUnsubsRef = useRef(new Map<string, Unsubscribe>());
+
   useEffect(() => {
     const handle = handleRef.current;
     if (!provider || !handle) return;
 
-    const unsubs: Unsubscribe[] = [];
+    const unsubs = layerUnsubsRef.current;
+    const rendered = new Set<string>();
     for (const datasetId of Object.keys(state.points)) {
       if (state.layers[datasetId] === false) continue;
 
@@ -283,13 +298,31 @@ export function ListingMap(props: IListingMapProps) {
         clustering: dataset?.clustering,
         onMarkerClick: markerId => engine.selectPoint(datasetId, markerId),
       };
-      unsubs.push(provider.renderLayer(handle, layer));
+      unsubs.set(datasetId, provider.renderLayer(handle, layer));
+      rendered.add(datasetId);
     }
 
+    // A dataset that no longer renders -- gone from `state.points`, or hidden
+    // via `toggleLayer` -- has its layer torn down; the others stay live.
+    for (const [datasetId, unsub] of unsubs) {
+      if (rendered.has(datasetId)) continue;
+      unsub();
+      unsubs.delete(datasetId);
+    }
+  }, [engine, provider, ready, state.points, state.layers]);
+
+  // Layer teardown: every live layer goes when the map does (unmount, or a
+  // provider/engine change) -- and only then. Declared BEFORE the mount effect
+  // below so this cleanup runs on unmount BEFORE the mount effect's cleanup
+  // (`provider.destroy`) -- see the class doc comment above for why ordering
+  // matters here.
+  useEffect(() => {
+    const unsubs = layerUnsubsRef.current;
     return () => {
       unsubs.forEach(unsub => unsub());
+      unsubs.clear();
     };
-  }, [engine, provider, ready, state.points, state.layers]);
+  }, [engine, provider, ready]);
 
   useEffect(() => {
     if (!containerRef.current || !provider) return;

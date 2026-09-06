@@ -62,17 +62,23 @@ export class FakeMapProvider implements MapProvider {
     return handle;
   }
 
+  /**
+   * Mirrors the real providers' contract for a layer id rendered again: the new
+   * render REPLACES the previous entry in place (same position in
+   * `renderedLayers`), and the superseded render's unsubscribe becomes a no-op
+   * -- the layer is reconciled, not torn down and rebuilt, so a points reload
+   * leaves `removedLayers` alone. Only unsubscribing the CURRENT render removes
+   * the entry and records it in `removedLayers`.
+   */
   renderLayer(_handle: MapHandle, layer: RenderedLayer): Unsubscribe {
-    this.renderedLayers.push(layer);
-    let removed = false;
+    const index = this.renderedLayers.findIndex(rendered => rendered.id === layer.id);
+    if (index === -1) this.renderedLayers.push(layer);
+    else this.renderedLayers[index] = layer;
     return () => {
-      if (removed) return;
-      removed = true;
-      const index = this.renderedLayers.indexOf(layer);
-      if (index !== -1) {
-        this.renderedLayers.splice(index, 1);
-        this.removedLayers.push(layer);
-      }
+      const current = this.renderedLayers.indexOf(layer);
+      if (current === -1) return;
+      this.renderedLayers.splice(current, 1);
+      this.removedLayers.push(layer);
     };
   }
 

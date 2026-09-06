@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.12.7
+
+### Patch Changes
+
+- Reconcile overlay markers by id when a layer re-renders instead of rebuilding the whole layer. A marker whose id is still present keeps its overlay and DOM node (re-anchored if it moved, its content swapped only when it changed), so a points reload -- one per map settle -- no longer blinks every marker and reloads every logo image. Advanced-marker mode is unchanged.
+
 ## 0.12.6
 
 ### Patch Changes

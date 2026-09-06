@@ -1546,6 +1546,124 @@ describe('googleProvider', () => {
       expect(onMarkerClick).toHaveBeenCalledWith('biz');
     });
 
+    describe('re-rendering a layer reconciles its overlay markers by id', () => {
+      const at = (lat: number, lng: number) => ({ lat, lng });
+
+      it('keeps the overlay and container of every id that is still present, instead of tearing it down and recreating it (regression: every points reload -- one per map settle -- blinked all markers)', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        const raw = handle.raw as { map: FakeMap };
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }, { id: 2, position: at(2, 2) }] }));
+        const [first, second] = createdOverlays;
+        const firstContainer = first.pane.firstElementChild;
+
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }, { id: 2, position: at(2, 2) }] }));
+
+        expect(createdOverlays).toHaveLength(2);
+        // Only the initial setMap(map): never detached, never re-added.
+        expect(first.setMap).toHaveBeenCalledTimes(1);
+        expect(first.setMap).toHaveBeenCalledWith(raw.map);
+        expect(second.setMap).toHaveBeenCalledTimes(1);
+        expect(first.pane.firstElementChild).toBe(firstContainer);
+      });
+
+      it('adds overlays for new ids only and removes only the ids that vanished', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        const raw = handle.raw as { map: FakeMap };
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }, { id: 2, position: at(2, 2) }] }));
+
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 2, position: at(2, 2) }, { id: 3, position: at(3, 3) }] }));
+
+        expect(createdOverlays).toHaveLength(3);
+        const [one, two, three] = createdOverlays;
+        expect(one.setMap).toHaveBeenLastCalledWith(null);
+        expect(two.setMap).toHaveBeenCalledTimes(1);
+        expect(three.setMap).toHaveBeenCalledTimes(1);
+        expect(three.setMap).toHaveBeenCalledWith(raw.map);
+      });
+
+      it('re-anchors a kept marker whose position changed and redraws it there', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }] }));
+        const container = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        expect(container.style.left).toBe('5px');
+
+        // The fake projection answers with `divPixelPoint` whatever the lat/lng, so a
+        // changed answer stands in for the new coordinate's projection.
+        divPixelPoint = { x: 50, y: 60 };
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(3, 3) }] }));
+
+        expect(createdOverlays).toHaveLength(1);
+        expect(container.style.left).toBe('50px');
+        expect(container.style.top).toBe('60px');
+      });
+
+      it("swaps a kept marker's content when its element changed, and keeps the existing node when the new one is equivalent", async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        pill.textContent = '$1,500';
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1), element: pill }] }));
+        const container = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        expect(container.firstElementChild).toBe(pill);
+
+        // A consumer rebuilds its marker elements on every render; an equivalent
+        // rebuild must not replace the live node (a logo <img> would reload).
+        const equivalent = pill.cloneNode(true) as HTMLElement;
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1), element: equivalent }] }));
+        expect(container.firstElementChild).toBe(pill);
+
+        const changed = document.createElement('div');
+        changed.className = 'pill';
+        changed.textContent = '$1,600';
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1), element: changed }] }));
+        expect(container.firstElementChild).toBe(changed);
+        expect(createdOverlays).toHaveLength(1);
+      });
+
+      it("routes a kept marker's click to the LATEST layer's onMarkerClick", async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        const stale = vi.fn();
+        const latest = vi.fn();
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: at(1, 1) }], onMarkerClick: stale }));
+
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: at(1, 1) }], onMarkerClick: latest }));
+        (createdOverlays[0].pane.firstElementChild as HTMLElement).click();
+
+        expect(latest).toHaveBeenCalledWith('a');
+        expect(stale).not.toHaveBeenCalled();
+      });
+
+      it('keeps a kept marker in the container index, so updateMarkerStates still repaints it after a re-render', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }] }));
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }] }));
+
+        provider.updateMarkerStates(1, null);
+
+        const container = createdOverlays[0].pane.firstElementChild as HTMLElement;
+        expect(container.classList.contains('rle-marker--selected')).toBe(true);
+      });
+
+      it('unsubscribing the latest render tears down every overlay the layer still shows, kept ones included', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }, { id: 2, position: at(2, 2) }] }));
+        const unsubscribe = provider.renderLayer(handle, makeLayer({ markers: [{ id: 2, position: at(2, 2) }, { id: 3, position: at(3, 3) }] }));
+
+        unsubscribe();
+
+        const [, two, three] = createdOverlays;
+        expect(two.setMap).toHaveBeenLastCalledWith(null);
+        expect(three.setMap).toHaveBeenLastCalledWith(null);
+      });
+    });
+
     it('renderLayer unsubscribe tears down overlay markers via setMap(null)', async () => {
       const provider = googleProvider({ apiKey: 'k', styles });
       const handle = await provider.mount(document.createElement('div'), {});
@@ -1629,27 +1747,33 @@ describe('googleProvider', () => {
       expect(raw.markerElements.size).toBe(1);
     });
 
-    it('re-rendering a layer.id replaces its entries in the id->element index with the fresh markers', async () => {
+    it('re-rendering a layer.id keeps a kept id on its live container in the id->element index, and re-points an id that left and came back at its fresh container', async () => {
       const provider = googleProvider({ apiKey: 'k', styles });
       const handle = await provider.mount(document.createElement('div'), {});
 
       provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 1, lng: 1 } }] }));
-      const staleDiv = createdOverlays[0].pane.firstElementChild as HTMLElement;
+      const liveDiv = createdOverlays[0].pane.firstElementChild as HTMLElement;
 
+      // A reload that still shows 'a' keeps its container (moved, but the same node) -- so the
+      // index entry must stay on it rather than go stale.
       provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 9, lng: 9 } }] }));
-      const freshDiv = createdOverlays[1].pane.firstElementChild as HTMLElement;
-
       provider.updateMarkerStates('a', null);
+      expect(createdOverlays).toHaveLength(1);
+      expect(liveDiv.classList.contains('rle-marker--selected')).toBe(true);
 
-      // Only the CURRENT container div for id 'a' gets the class -- the stale, already-torn-down
-      // node from the replaced layer is untouched.
-      expect(freshDiv.classList.contains('rle-marker--selected')).toBe(true);
-      expect(staleDiv.classList.contains('rle-marker--selected')).toBe(false);
+      // 'a' leaves the map and comes back on a later reload: only the CURRENT container gets the
+      // class -- the torn-down node from the earlier render is untouched.
+      provider.renderLayer(handle, makeLayer({ markers: [] }));
+      provider.renderLayer(handle, makeLayer({ markers: [{ id: 'a', position: { lat: 1, lng: 1 } }] }));
+      const freshDiv = createdOverlays[1].pane.firstElementChild as HTMLElement;
+      provider.updateMarkerStates(null, 'a');
+      expect(freshDiv.classList.contains('rle-marker--hovered')).toBe(true);
+      expect(liveDiv.classList.contains('rle-marker--hovered')).toBe(false);
     });
 
     it(
-      'a marker container recreated by a layer re-render (e.g. a bounds/idle-driven points reload while a ' +
-        'marker is selected/hovered) immediately regains its rle-marker--selected/--hovered class on ' +
+      'a marker container recreated by a layer re-render (a marker that left the viewport and came back ' +
+        'on a later points reload while selected/hovered) immediately regains its rle-marker--selected/--hovered class on ' +
         'registration -- even though the marker-state effect in `ListingMap` only re-invokes ' +
         'updateMarkerStates on a selection/hover CHANGE, never on a points-only reload, so nothing else ' +
         'ever re-applies the highlight to the fresh container (regression: the old container is torn down ' +
@@ -1680,11 +1804,12 @@ describe('googleProvider', () => {
         expect(firstDivA.classList.contains('rle-marker--selected')).toBe(true);
         expect(firstDivB.classList.contains('rle-marker--hovered')).toBe(true);
 
-        // Simulate a points reload recreating markers for the SAME layer.id (a fresh `state.points`
-        // reference -> the layer-render effect tears down every existing marker and builds new ones)
-        // WITHOUT touching selection/hover -- exactly what happens on every bounds/idle event while a
-        // marker is selected/hovered (perks' `/find` refilters on every map move). Registration is
-        // async (deferred `onAdd`), mirroring the real Maps runtime.
+        // Simulate 'a' and 'b' panning OUT of the viewport (a points reload without them) and back
+        // IN on the next reload -- the reconciling re-render detaches their overlays and later
+        // creates fresh ones -- WITHOUT touching selection/hover: exactly what a bounds/idle event
+        // does while a marker is selected/hovered. Registration is async (deferred `onAdd`),
+        // mirroring the real Maps runtime.
+        provider.renderLayer(handle, makeLayer({ markers: [] }));
         provider.renderLayer(
           handle,
           makeLayer({

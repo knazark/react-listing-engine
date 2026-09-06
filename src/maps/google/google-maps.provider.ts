@@ -37,9 +37,22 @@ type LayerMarkerSpec = RenderedLayer['markers'][number];
  * (no-`mapId`) mode. Structurally it's just a `google.maps.OverlayView` -- all the provider needs
  * from it externally is `setMap()`, which `OverlayView` already exposes.
  */
-type HtmlMarker = google.maps.OverlayView;
 /**
- * Lifecycle hooks `createOverlayMarkers` passes into every `HtmlMarkerOverlay` instance so it can
+ * The `OverlayView` subclass instance `reconcileOverlayMarkers` builds: the SDK's own `setMap`
+ * plus the surface a reconciling re-render needs to keep an existing overlay alive under a
+ * refreshed marker spec (see `reconcileOverlayMarkers`).
+ */
+interface HtmlMarker extends google.maps.OverlayView {
+  readonly markerId: EntityId;
+  /** The latest layer's click handler -- swapped in place on a re-render, never rebound. */
+  onClick: (() => void) | undefined;
+  getContent(): HTMLElement;
+  getPosition(): LatLng;
+  setContent(content: HTMLElement): void;
+  updatePosition(position: LatLng): void;
+}
+/**
+ * Lifecycle hooks `reconcileOverlayMarkers` passes into every `HtmlMarkerOverlay` instance so it can
  * maintain `raw.markerElements` (the id -> container-`<div>` index `updateMarkerStates` reads)
  * from INSIDE the overlay's own `onAdd`/`onRemove` -- the only place the container `<div>` is
  * actually created/torn down. `google.maps.OverlayView.onAdd()` fires asynchronously (on the
@@ -59,7 +72,13 @@ interface HtmlMarkerLifecycle {
   onContainerRemove(container: HTMLElement): void;
 }
 interface HtmlMarkerCtor {
-  new (position: LatLng, content: HTMLElement, onClick: (() => void) | undefined, lifecycle: HtmlMarkerLifecycle): HtmlMarker;
+  new (
+    markerId: EntityId,
+    position: LatLng,
+    content: HTMLElement,
+    onClick: (() => void) | undefined,
+    lifecycle: HtmlMarkerLifecycle,
+  ): HtmlMarker;
 }
 
 export interface GoogleMapsProviderConfig {
@@ -151,7 +170,7 @@ interface GoogleMapRaw {
   clusterers: Map<string, MarkerClustererInstance>;
   /**
    * Overlay-mode (`styles`/no-`mapId`) index of each rendered marker's CONTAINER `<div>`, keyed by
-   * marker id, spanning every layer -- populated in `createOverlayMarkers`, pruned per-layer as
+   * marker id, spanning every layer -- populated in `reconcileOverlayMarkers`, pruned per-layer as
    * layers are replaced/torn down in `renderLayer` (via `layerMarkerIds`, below) and cleared
    * entirely in `destroy`. Read by `updateMarkerStates` to toggle
    * `rle-marker--selected`/`rle-marker--hovered` on the exact existing node -- never touched in
@@ -167,13 +186,14 @@ interface GoogleMapRaw {
   /**
    * The most recently requested selected/hovered marker ids (the arguments of the last
    * `updateMarkerStates` call), PERSISTED here rather than only applied transiently to the markers
-   * live at that exact moment. A layer re-render (e.g. `ListingMap`'s layer effect rebuilding every
-   * marker whenever `state.points` gets a new reference -- which happens on every bounds/idle event,
-   * completely independent of selection/hover) tears down the old container and creates a brand-new
-   * one with no classes at all. `ListingMap`'s separate marker-state effect deliberately only
+   * live at that exact moment. A layer re-render (`ListingMap`'s layer effect runs whenever
+   * `state.points` gets a new reference -- on every bounds/idle event, completely independent of
+   * selection/hover) creates a brand-new container, with no classes at all, for every marker id it
+   * did not have before (an id it already had keeps its container -- see
+   * `reconcileOverlayMarkers`). `ListingMap`'s separate marker-state effect deliberately only
    * re-invokes `updateMarkerStates` on a selection/hover CHANGE (see that effect's doc comment), so
    * without this, a freshly recreated container would silently stay unhighlighted until the next real
-   * selection/hover change. Reading these back in `onContainerAdd` (see `createOverlayMarkers`) lets a
+   * selection/hover change. Reading these back in `onContainerAdd` (see `reconcileOverlayMarkers`) lets a
    * newly registered container regain the correct highlight immediately, regardless of *when* its
    * async `onAdd` happens to fire relative to the last `updateMarkerStates` call. `null` until
    * `updateMarkerStates` is first called. Overlay mode only -- unused (and harmless) in advanced mode.
@@ -259,16 +279,54 @@ let htmlMarkerCtor: HtmlMarkerCtor | undefined;
 function getHtmlMarkerCtor(): HtmlMarkerCtor {
   if (htmlMarkerCtor) return htmlMarkerCtor;
 
-  class HtmlMarkerOverlay extends google.maps.OverlayView {
+  class HtmlMarkerOverlay extends google.maps.OverlayView implements HtmlMarker {
     private div: HTMLDivElement | null = null;
+    private clickHandler: (() => void) | undefined;
 
     constructor(
-      private readonly position: LatLng,
-      private readonly content: HTMLElement,
-      private readonly onClick: (() => void) | undefined,
+      readonly markerId: EntityId,
+      private position: LatLng,
+      private content: HTMLElement,
+      onClick: (() => void) | undefined,
       private readonly lifecycle: HtmlMarkerLifecycle,
     ) {
       super();
+      this.clickHandler = onClick;
+    }
+
+    get onClick(): (() => void) | undefined {
+      return this.clickHandler;
+    }
+
+    set onClick(handler: (() => void) | undefined) {
+      this.clickHandler = handler;
+      if (this.div) this.applyCursor(this.div);
+    }
+
+    getContent(): HTMLElement {
+      return this.content;
+    }
+
+    getPosition(): LatLng {
+      return this.position;
+    }
+
+    /** Swaps the rendered content in place -- the container `<div>` (and so the marker's
+     *  selection/hover classes and its place in the container index) stays. */
+    setContent(content: HTMLElement): void {
+      if (content === this.content) return;
+      this.content = content;
+      this.div?.replaceChildren(content);
+    }
+
+    /** Re-anchors the overlay at a new coordinate and redraws it there. */
+    updatePosition(position: LatLng): void {
+      this.position = position;
+      this.draw();
+    }
+
+    private applyCursor(div: HTMLDivElement): void {
+      div.style.cursor = this.clickHandler ? 'pointer' : '';
     }
 
     override onAdd(): void {
@@ -276,10 +334,10 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
       div.style.position = 'absolute';
       // Center the content on the coordinate rather than anchoring its top-left corner there.
       div.style.transform = 'translate(-50%, -50%)';
-      if (this.onClick) {
-        div.style.cursor = 'pointer';
-        div.addEventListener('click', this.onClick);
-      }
+      // Wired unconditionally and read through `onClick` at click time: a reconciling re-render
+      // swaps the handler on a live overlay (see `reconcileOverlayMarkers`).
+      div.addEventListener('click', () => this.onClick?.());
+      this.applyCursor(div);
       div.appendChild(this.content);
       this.div = div;
       this.getPanes()?.overlayMouseTarget.appendChild(div);
@@ -726,30 +784,93 @@ function applyMarkerStateClasses(
  * `setMap()` (real `OverlayView.onAdd()` fires asynchronously, on the next map render cycle --  a
  * synchronous read finds nothing, and the index stays permanently empty).
  */
-function createOverlayMarkers(raw: GoogleMapRaw, layer: RenderedLayer): HtmlMarker[] {
+/**
+ * Renders `layer`'s markers as `HtmlMarkerOverlay`s, RECONCILING against the overlays `previous`
+ * (the same layer id's last render) already has on the map:
+ *
+ *   - an id present in both keeps its overlay and container `<div>`. Its position is re-anchored
+ *     if the coordinate moved, its content node swapped only when the new element differs (a
+ *     consumer rebuilds its marker elements on every render, so an equivalent rebuild keeps the
+ *     live node -- a logo `<img>` would otherwise reload), and its click handler is re-pointed at
+ *     THIS layer's `onMarkerClick`;
+ *   - a new id gets a fresh overlay, added via `setMap(map)`;
+ *   - an id that vanished has its overlay detached via `setMap(null)`.
+ *
+ * The alternative -- detach every overlay and create them all again -- is what a plain re-render
+ * used to do on every points reload, i.e. once per map settle, so on every pan and zoom step:
+ * `setMap(null)` removes a container synchronously while the replacement's `onAdd` only fires on
+ * the next map render cycle, so the map went a frame or two without any marker and every logo
+ * image reloaded -- visible as the markers blinking on each settle.
+ */
+function reconcileOverlayMarkers(
+  raw: GoogleMapRaw,
+  layer: RenderedLayer,
+  previous: ReadonlyArray<HtmlMarker> | undefined,
+): HtmlMarker[] {
   const HtmlMarkerOverlay = getHtmlMarkerCtor();
-  return layer.markers.map((marker) => {
+  const reusable = new Map<EntityId, HtmlMarker>();
+  for (const overlay of previous ?? []) reusable.set(overlay.markerId, overlay);
+  const reused = new Set<HtmlMarker>();
+
+  const next = layer.markers.map((marker) => {
     const onMarkerClick = layer.onMarkerClick;
     const onClick = onMarkerClick ? () => onMarkerClick(marker.id) : undefined;
-    const htmlMarker = new HtmlMarkerOverlay(marker.position, resolveOverlayContent(marker), onClick, {
-      onContainerAdd: (container) => {
-        raw.markerElements.set(marker.id, container);
-        // Re-apply whatever selection/hover highlight is currently active -- see
-        // `raw.selectedMarkerId`/`hoveredMarkerId`'s doc comment for why this container may be a
-        // brand-new replacement (from a layer re-render) that came up with no classes at all.
-        applyMarkerStateClasses(container, marker.id, raw.selectedMarkerId, raw.hoveredMarkerId);
-      },
-      onContainerRemove: (container) => {
-        // Only clear if this id's index entry is still THIS container -- a re-render for the
-        // same layer.id may already have registered a FRESH container for `marker.id` by the
-        // time this (now-stale) overlay's onRemove gets around to firing (see
-        // `HtmlMarkerLifecycle`'s doc comment).
-        if (raw.markerElements.get(marker.id) === container) raw.markerElements.delete(marker.id);
-      },
-    });
+    const existing = reusable.get(marker.id);
+    if (existing && !reused.has(existing)) {
+      reused.add(existing);
+      existing.onClick = onClick;
+      if (!sameLatLng(existing.getPosition(), marker.position)) existing.updatePosition(marker.position);
+      const content = resolveOverlayContent(marker);
+      if (!isEquivalentContent(existing.getContent(), content)) existing.setContent(content);
+      return existing;
+    }
+    const htmlMarker = new HtmlMarkerOverlay(
+      marker.id,
+      marker.position,
+      resolveOverlayContent(marker),
+      onClick,
+      overlayLifecycle(raw, marker.id),
+    );
     htmlMarker.setMap(raw.map);
     return htmlMarker;
   });
+
+  for (const overlay of previous ?? []) {
+    if (!reused.has(overlay)) overlay.setMap(null);
+  }
+  return next;
+}
+
+/** The `raw.markerElements` bookkeeping every overlay reports its container through. */
+function overlayLifecycle(raw: GoogleMapRaw, markerId: EntityId): HtmlMarkerLifecycle {
+  return {
+    onContainerAdd: (container) => {
+      raw.markerElements.set(markerId, container);
+      // Re-apply whatever selection/hover highlight is currently active -- see
+      // `raw.selectedMarkerId`/`hoveredMarkerId`'s doc comment for why this container may be a
+      // brand-new one (from a layer re-render) that came up with no classes at all.
+      applyMarkerStateClasses(container, markerId, raw.selectedMarkerId, raw.hoveredMarkerId);
+    },
+    onContainerRemove: (container) => {
+      // Only clear if this id's index entry is still THIS container -- a re-render for the
+      // same layer.id may already have registered a FRESH container for `markerId` by the
+      // time this (now-stale) overlay's onRemove gets around to firing (see
+      // `HtmlMarkerLifecycle`'s doc comment).
+      if (raw.markerElements.get(markerId) === container) raw.markerElements.delete(markerId);
+    },
+  };
+}
+
+function sameLatLng(a: LatLng, b: LatLng): boolean {
+  return a.lat === b.lat && a.lng === b.lng;
+}
+
+/**
+ * A consumer's rebuilt marker element counts as the same content when it serializes the same,
+ * so the live node keeps its listeners and, for an `<img>`, its decoded image.
+ */
+function isEquivalentContent(current: HTMLElement, next: HTMLElement): boolean {
+  return current === next || current.outerHTML === next.outerHTML;
 }
 
 /**
@@ -1121,36 +1242,38 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       const raw = toRaw(handle);
 
       const previous = raw.layers.get(layer.id);
-      if (previous) {
-        removeMarkers(previous);
-        raw.layers.delete(layer.id);
-        pruneLayerMarkerElements(raw, layer.id);
-      }
-      // A re-render for the same `layer.id` always replaces its clusterer too (not just its
-      // markers) -- see `setupClustering`'s doc comment for why this synchronous dispose, run
-      // before `created`/`setupClustering` below, is what keeps a stale clusterer from a
-      // still-in-flight PREVIOUS call from ever out-living this one.
-      disposeClusterer(raw, layer.id);
-
-      const created: AdvancedMarker[] | HtmlMarker[] =
-        raw.markerMode === 'overlay' ? createOverlayMarkers(raw, layer) : createAdvancedMarkers(raw, layer);
-      raw.layers.set(layer.id, created);
+      let created: AdvancedMarker[] | HtmlMarker[];
       if (raw.markerMode === 'overlay') {
+        // Overlay markers are reconciled by id against this layer's previous render -- see
+        // `reconcileOverlayMarkers`. The container index (`markerElements`) follows each overlay's
+        // own onAdd/onRemove, so nothing is pruned here: a kept overlay keeps its entry.
+        created = reconcileOverlayMarkers(raw, layer, previous as ReadonlyArray<HtmlMarker> | undefined);
+        raw.layers.set(layer.id, created);
         raw.layerMarkerIds.set(
           layer.id,
           layer.markers.map((marker) => marker.id),
         );
-      }
-
-      if (layer.clustering) {
-        if (raw.markerMode === 'overlay') {
+        if (layer.clustering) {
           // `MarkerClusterer` only manages Marker/AdvancedMarkerElement, not OverlayView markers --
           // warn once and leave the overlay markers rendered plain (unclustered).
           warnOverlayClusteringUnsupported();
-        } else {
+        }
+      } else {
+        if (previous) {
+          removeMarkers(previous);
+          raw.layers.delete(layer.id);
+        }
+        // A re-render for the same `layer.id` always replaces its clusterer too (not just its
+        // markers) -- see `setupClustering`'s doc comment for why this synchronous dispose, run
+        // before `created`/`setupClustering` below, is what keeps a stale clusterer from a
+        // still-in-flight PREVIOUS call from ever out-living this one.
+        disposeClusterer(raw, layer.id);
+        created = createAdvancedMarkers(raw, layer);
+        raw.layers.set(layer.id, created);
+        if (layer.clustering) {
           // Fire-and-forget: `setupClustering` is the only async step in this otherwise
           // synchronous render path (see its doc comment for the staleness guard this implies).
-          void setupClustering(raw, layer.id, created as AdvancedMarker[], layer.clustering);
+          void setupClustering(raw, layer.id, created, layer.clustering);
         }
       }
 
@@ -1299,10 +1422,10 @@ export function googleProvider(config: GoogleMapsProviderConfig): MapProvider {
       // selection/hover -- e.g. a bounds/idle-driven points reload) can regain the correct
       // highlight the instant it registers, without waiting for the next call here -- see
       // `GoogleMapRaw.selectedMarkerId`/`hoveredMarkerId`'s doc comment and `onContainerAdd` in
-      // `createOverlayMarkers`.
+      // `reconcileOverlayMarkers`.
       currentRaw.selectedMarkerId = selectedId;
       currentRaw.hoveredMarkerId = hoveredId;
-      // `markerElements` is populated ONLY by `createOverlayMarkers` (overlay/`styles` mode), so
+      // `markerElements` is populated ONLY by `reconcileOverlayMarkers` (overlay/`styles` mode), so
       // this loop is naturally empty -- a no-op -- in advanced-marker mode (`AdvancedMarkerElement`,
       // used only when a Map ID is set): that mode has no addressable container element to toggle
       // classes on, and is out of the perks path this task targets.
