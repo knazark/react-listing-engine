@@ -1,5 +1,7 @@
 'use client';
 
+import { memo, useMemo } from 'react';
+
 import type { EntityId } from '~/interfaces';
 
 import { useListingComponents } from '../components-provider';
@@ -44,6 +46,30 @@ export function ListingList({ className }: { className?: string } = {}) {
   const { pagination, selection } = useListingState();
   const { Card, Empty, Loading } = useListingComponents();
 
+  // This component re-renders on EVERY store write -- a hover, a selection, a
+  // map settle -- because it subscribes to the whole state. Without these two,
+  // each of those re-rendered every card in the page: a fresh `onSelect`
+  // closure per card made props unequal, and an unmemoized `Card` re-rendered
+  // regardless. Memoizing narrows a page-wide re-render to the cards whose own
+  // props actually changed.
+  //
+  // `memo` only stops re-renders that come from HERE. A card with its own
+  // subscription still re-renders when what it subscribes to changes -- which
+  // is the point, and why a card that reads one value should reach for
+  // `useListingSelector` rather than the whole state.
+  const MemoCard = useMemo(() => memo(Card), [Card]);
+
+  // One handler per item, rebuilt only when the page's items are replaced --
+  // exactly when every card re-renders anyway.
+  const selectHandlers = useMemo(() => {
+    const handlers = new Map<EntityId, () => void>();
+    items.forEach((item, index) => {
+      const id = deriveItemId(item, index);
+      handlers.set(id, () => engine.selectPoint(engine.primaryDatasetId, id));
+    });
+    return handlers;
+  }, [engine, items]);
+
   if (items.length === 0 && (pagination.loading || !pagination.loaded)) {
     return <Loading />;
   }
@@ -56,14 +82,7 @@ export function ListingList({ className }: { className?: string } = {}) {
     <div role="list" className={className}>
       {items.map((item, index) => {
         const id = deriveItemId(item, index);
-        return (
-          <Card
-            key={id}
-            item={item}
-            selected={selection === id}
-            onSelect={() => engine.selectPoint(engine.primaryDatasetId, id)}
-          />
-        );
+        return <MemoCard key={id} item={item} selected={selection === id} onSelect={selectHandlers.get(id)} />;
       })}
     </div>
   );
