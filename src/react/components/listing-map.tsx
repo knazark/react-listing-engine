@@ -28,6 +28,27 @@ const BBOX_PAD_RATIO = 0.1;
 // zero span is still zero, which would hand `fitBounds()` a degenerate box.
 const SINGLE_POINT_PAD_DEGREES = 0.02;
 
+/** Whether the element occupies real space -- false while it is `display: none`
+ *  (the mobile List view's hidden map pane) or still mid-layout. */
+function isLaidOut(el: HTMLElement): boolean {
+  const { height, width } = el.getBoundingClientRect();
+  return width > 0 && height > 0;
+}
+
+/**
+ * Whether the environment lays anything out at all.
+ *
+ * jsdom and other non-visual DOMs report every box as 0x0 -- including the
+ * document's own -- so "no size yet" and "hidden" are indistinguishable there
+ * and waiting for a size would wait forever. A real browser always gives the
+ * document element the viewport, hidden panes and all.
+ */
+function laysOut(el: HTMLElement): boolean {
+  const root = el.ownerDocument.documentElement;
+  const { height, width } = root.getBoundingClientRect();
+  return width > 0 || height > 0;
+}
+
 // Computes a padded bounding box over `points`, or `null` for an empty list
 // (nothing to frame). Exported for testability from within this module only
 // -- not part of the package's public surface.
@@ -330,8 +351,9 @@ export function ListingMap(props: IListingMapProps) {
     const container = containerRef.current;
     let cancelled = false;
     let boundsUnsub: Unsubscribe | null = null;
+    let sizeObserver: ResizeObserver | null = null;
 
-    void (async () => {
+    const mount = async (): Promise<void> => {
       const handle = await provider.mount(container, {
         center,
         zoom,
@@ -392,10 +414,39 @@ export function ListingMap(props: IListingMapProps) {
       // runs once per real (non-Strict-Mode-discarded) mounted handle,
       // since it lives after the `cancelled` check above.
       void engine.loadPoints(WORLD_BOUNDS);
-    })();
+    };
+
+    // Nothing boots into a container that has not been laid out.
+    //
+    // A map SDK is the heaviest thing on the page -- Google's costs the better
+    // part of a megabyte of script before it draws anything -- and a hidden
+    // pane cannot draw. The mobile layout keeps the map mounted but
+    // `display: none` behind the List view, so every visitor who never opened
+    // the map paid for the SDK anyway. Waiting for real size defers that until
+    // the pane is actually shown, and costs a laid-out desktop map nothing: the
+    // container already has size on this first pass and mounts synchronously.
+    //
+    // The same rule also protects the map itself. Created against a 0x0 box it
+    // comes up centered on nothing and framed on the whole world -- the state
+    // `fitBounds` callers have to work around today.
+    //
+    // Degrades to mounting straight away wherever the wait could never end: a
+    // DOM with no `ResizeObserver`, or one that lays nothing out.
+    if (isLaidOut(container) || !laysOut(container) || typeof ResizeObserver === 'undefined') {
+      void mount();
+    } else {
+      sizeObserver = new ResizeObserver(() => {
+        if (!isLaidOut(container)) return;
+        sizeObserver?.disconnect();
+        sizeObserver = null;
+        void mount();
+      });
+      sizeObserver.observe(container);
+    }
 
     return () => {
       cancelled = true;
+      sizeObserver?.disconnect();
       boundsUnsub?.();
       if (handleRef.current) {
         provider.destroy(handleRef.current);
