@@ -1,5 +1,14 @@
 # react-listing-engine
 
+## 0.12.11
+
+### Patch Changes
+
+- Cut the re-renders a map settle causes. The convenience hooks (`useListingFilters`, `useListingResults`, `useListingMap`) and the built-in components now subscribe to their own slice of the store instead of the whole state, so a hover, a selection or a points load no longer re-renders everything that reads filters or results.
+- A refetch that returns an entity with unchanged data hands back the previous object, and `ListingList` keeps each item's `onSelect` for as long as its id stays on the page, so a memoized card for an unchanged result does not re-render.
+- `ListingList` sets `data-loading` on the list element while a refetch is in flight over a page that is still on screen, so stale cards can be dimmed from CSS.
+- `ListingFilters` re-renders a control only when its own value changes, and the styled layout no longer re-renders the `Search` slot when its value did not change.
+
 ## 0.12.10
 
 ### Patch Changes
