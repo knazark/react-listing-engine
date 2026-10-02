@@ -1,5 +1,7 @@
 'use client';
 
+import { memo, useMemo } from 'react';
+
 import { useListingComponents } from '~/react';
 
 import type { IBottomNavAction } from './bottom-nav';
@@ -28,8 +30,14 @@ export interface IMobileHeaderProps {
  * full inline filter row, whereas here the remaining filters move behind the
  * Filters button. The `List | Map` view toggle lives in the footer (`BottomNav`).
  */
-export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }: IMobileHeaderProps) {
-	const { Search } = useListingComponents();
+export const MobileHeader = memo(function MobileHeader({
+	search,
+	onFiltersClick,
+	filterCount = 0,
+	action,
+}: IMobileHeaderProps) {
+	const { Search: SearchSlot } = useListingComponents();
+	const Search = useMemo(() => memo(SearchSlot), [SearchSlot]);
 
 	return (
 		<header className="rle-mobile-header">
@@ -57,7 +65,7 @@ export function MobileHeader({ search, onFiltersClick, filterCount = 0, action }
 			)}
 		</header>
 	);
-}
+});
 
 function FiltersIcon() {
 	return (

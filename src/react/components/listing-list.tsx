@@ -1,13 +1,14 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 
 import type { EntityId } from '~/interfaces';
 
 import { useListingComponents } from '../components-provider';
 import { useListing } from '../hooks/use-listing';
 import { useListingResults } from '../hooks/use-listing-results';
-import { useListingState } from '../hooks/use-listing-state';
+import { useListingSelector } from '../hooks/use-listing-selector';
+import type { useListingState } from '../hooks/use-listing-state';
 
 // Defensive id derivation, mirroring components-provider.tsx's
 // getItemTitle() fallback for the default Card: an item is expected to carry
@@ -43,7 +44,12 @@ function deriveItemId(item: unknown, index: number): EntityId {
 export function ListingList({ className }: { className?: string } = {}) {
   const engine = useListing();
   const { items } = useListingResults();
-  const { pagination, selection } = useListingState();
+  type State = ReturnType<typeof useListingState>;
+  // Two booleans, not the `pagination` object: a page-index write replaces
+  // that object without changing what this component renders.
+  const loading = useListingSelector<boolean>(state => state.pagination.loading);
+  const loaded = useListingSelector<boolean>(state => state.pagination.loaded);
+  const selection = useListingSelector<State['selection']>(state => state.selection);
   const { Card, Empty, Loading } = useListingComponents();
 
   // This component re-renders on EVERY store write -- a hover, a selection, a
@@ -59,18 +65,24 @@ export function ListingList({ className }: { className?: string } = {}) {
   // `useListingSelector` rather than the whole state.
   const MemoCard = useMemo(() => memo(Card), [Card]);
 
-  // One handler per item, rebuilt only when the page's items are replaced --
-  // exactly when every card re-renders anyway.
+  // One handler per item id, kept for as long as that id stays on the page.
+  // Rebuilding them whenever `items` was replaced handed every card a new
+  // `onSelect` on each refetch, which defeated the memo above even for a card
+  // whose item came back unchanged.
+  const handlerCache = useRef({ engine, handlers: new Map<EntityId, () => void>() });
   const selectHandlers = useMemo(() => {
+    // A handler closes over the engine, so none survives an engine swap.
+    const reusable = handlerCache.current.engine === engine ? handlerCache.current.handlers : undefined;
     const handlers = new Map<EntityId, () => void>();
     items.forEach((item, index) => {
       const id = deriveItemId(item, index);
-      handlers.set(id, () => engine.selectPoint(engine.primaryDatasetId, id));
+      handlers.set(id, reusable?.get(id) ?? (() => engine.selectPoint(engine.primaryDatasetId, id)));
     });
+    handlerCache.current = { engine, handlers };
     return handlers;
   }, [engine, items]);
 
-  if (items.length === 0 && (pagination.loading || !pagination.loaded)) {
+  if (items.length === 0 && (loading || !loaded)) {
     return <Loading />;
   }
 
@@ -79,7 +91,10 @@ export function ListingList({ className }: { className?: string } = {}) {
   }
 
   return (
-    <div role="list" className={className}>
+    // `data-loading` marks a refetch over a page that is still on screen, so a
+    // consumer can dim the stale cards from CSS instead of subscribing every
+    // card to the loading flag and re-rendering all of them twice per query.
+    <div role="list" className={className} data-loading={loading ? '' : undefined}>
       {items.map((item, index) => {
         const id = deriveItemId(item, index);
         return <MemoCard key={id} item={item} selected={selection === id} onSelect={selectHandlers.get(id)} />;

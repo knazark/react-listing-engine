@@ -307,4 +307,35 @@ describe('ListingStore nested immutability (getState() must not expose a mutable
     expect(before.results.items).toEqual([{ id: 1 }]);
     expect(after.results.items).toEqual([{ id: 1 }, { id: 2 }]);
   });
+
+  it('keeps the identity of result items a refetch returns unchanged', () => {
+    interface Row {
+      id: number;
+      tags: string[];
+    }
+    const store = new ListingStore<Row, object>({ filters: {} });
+    store.setResults({ items: [{ id: 1, tags: ['a'] }, { id: 2, tags: ['b'] }], nextCursor: null });
+    const [first, second] = store.getState().results.items;
+
+    store.setResults({ items: [{ id: 2, tags: ['changed'] }, { id: 1, tags: ['a'] }, { id: 3, tags: [] }], nextCursor: null });
+    const next = store.getState().results.items;
+
+    // Same data -> the previous object, wherever it now sits in the page.
+    expect(next[1]).toBe(first);
+    // Changed data -> the fresh object.
+    expect(next[0]).not.toBe(second);
+    expect(next[0]).toEqual({ id: 2, tags: ['changed'] });
+    expect(next).toHaveLength(3);
+  });
+
+  it('never reuses an item it cannot compare structurally', () => {
+    const store = new ListingStore<{ id: number; at: Date }, object>({ filters: {} });
+    store.setResults({ items: [{ id: 1, at: new Date(0) }], nextCursor: null });
+    const [before] = store.getState().results.items;
+
+    const fresh = { id: 1, at: new Date(0) };
+    store.setResults({ items: [fresh], nextCursor: null });
+
+    expect(store.getState().results.items[0]).not.toBe(before);
+  });
 });

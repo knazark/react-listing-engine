@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { PaginationMode } from '~/enums';
 import type { LatLng } from '~/interfaces';
@@ -13,8 +13,8 @@ import {
 	useListing,
 	useListingComponents,
 	useListingFilters,
-	useListingResults,
-	useListingState,
+	useListingSelector,
+	type useListingState,
 } from '~/react';
 
 import { type IBottomNavAction, type BottomNavView } from './bottom-nav';
@@ -264,7 +264,7 @@ function shallowEqualFilters(a: unknown, b: unknown): boolean {
  *   no refetch at all, if the draft is unchanged from what's already
  *   applied -- see `handleApplyDraft`). While a commit's refetch (or any
  *   OTHER live refetch, e.g. the desktop bar or search box, which still apply
- *   immediately) is in flight -- `pagination.loading` (`useListingState()`) is
+ *   immediately) is in flight -- `loading` (`useListingState()`) is
  *   true -- the apply button is `disabled` and its label swaps for a
  *   `.rle-spinner`, so the sheet reads as "updating" instead of letting the
  *   user close onto a stale count. `.rle-sheet__apply` pins a `min-width` so
@@ -297,14 +297,23 @@ export function StyledListingLayout<TFilters = unknown>({
 	className,
 }: IStyledListingLayoutProps<TFilters>) {
 	const engine = useListing();
-	const { BottomNav: BottomNavSlot, Search } = useListingComponents();
-	const results = useListingResults();
+	const { BottomNav: BottomNavSlot, Search: SearchSlot } = useListingComponents();
+	// The layout re-renders on every filters write and every loading flip; a
+	// search box whose value did not change has no part in either.
+	const Search = useMemo(() => memo(SearchSlot), [SearchSlot]);
+	// Only the count, never the items: a refetch that returns the same number
+	// of results changes nothing this component renders.
+	const resultCount = useListingSelector<number>(({ results }) => results.total ?? results.items.length);
 	const { filters, set } = useListingFilters();
-	const { pagination } = useListingState();
+	type Pagination = ReturnType<typeof useListingState>['pagination'];
+	const paginationMode = useListingSelector<Pagination['mode']>(state => state.pagination.mode);
+	const pageIndex = useListingSelector<number>(state => state.pagination.pageIndex);
+	const loading = useListingSelector<boolean>(state => state.pagination.loading);
 
 	// `engine.map` is the single source of truth for "is a map configured";
 	// the prop only overrides it (see its doc).
-	const hasMap = hasMapProp ?? engine.map != null;
+	const engineHasMap = useListingSelector(() => engine.map != null);
+	const hasMap = hasMapProp ?? engineHasMap;
 
 	const [mobileView, setMobileView] = useState<BottomNavView>('list');
 	const [sheetOpen, setSheetOpen] = useState(false);
@@ -317,9 +326,9 @@ export function StyledListingLayout<TFilters = unknown>({
 	// would yank the user away from the rows they just loaded, so it's skipped.
 	const listScrollRef = useRef<HTMLDivElement | null>(null);
 	useEffect(() => {
-		if (pagination.mode !== PaginationMode.Paged) return;
+		if (paginationMode !== PaginationMode.Paged) return;
 		if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
-	}, [pagination.mode, pagination.pageIndex]);
+	}, [paginationMode, pageIndex]);
 
 	// Deferred mobile-sheet filters: `draft` buffers every control edit made
 	// INSIDE the sheet -- nothing reaches the engine until "Show N results"
@@ -336,13 +345,15 @@ export function StyledListingLayout<TFilters = unknown>({
 		if (sheetOpen) setDraft(filters as Record<string, unknown>);
 	}
 
-	const patchDraft = (partial: Partial<Record<string, unknown>>): void =>
-		setDraft(current => ({ ...current, ...partial }));
+	const patchDraft = useCallback(
+		(partial: Partial<Record<string, unknown>>): void => setDraft(current => ({ ...current, ...partial })),
+		[],
+	);
 
 	// Tracks a "Show N results" commit in progress so the sheet can stay open
 	// through the resulting refetch (the existing loader stays visible on the
 	// apply button) and close only once it settles -- see the apply button's
-	// onClick below. `sawLoadingRef` records that `pagination.loading` was
+	// onClick below. `sawLoadingRef` records that `loading` was
 	// actually observed `true` for THIS commit before treating a subsequent
 	// `false` as "settled" -- otherwise a commit made while `debounceMs > 0`
 	// (loading only flips true once the debounce timer fires, not
@@ -353,7 +364,7 @@ export function StyledListingLayout<TFilters = unknown>({
 
 	useEffect(() => {
 		if (!committing) return;
-		if (pagination.loading) {
+		if (loading) {
 			sawLoadingRef.current = true;
 			return;
 		}
@@ -362,22 +373,32 @@ export function StyledListingLayout<TFilters = unknown>({
 			setCommitting(false);
 			setSheetOpen(false);
 		}
-	}, [committing, pagination.loading]);
+	}, [committing, loading]);
 
 	// Library-wired search: read the current value straight off the engine's
 	// filters and write edits back through `set` (`useListingFilters`'s
 	// bulk-patch mutator), so the SAME box in the desktop bar and the mobile
 	// header both drive `search.filterKey` without the consumer plumbing
 	// value/onChange (see `search` prop doc).
-	const searchBox = search
-		? {
-				value: String((filters as Record<string, unknown>)[search.filterKey] ?? ''),
-				onChange: (value: string): void => {
-					void set({ [search.filterKey]: value || undefined });
-				},
-				placeholder: search.placeholder,
-			}
-		: undefined;
+	const searchKey = search?.filterKey;
+	const searchPlaceholder = search?.placeholder;
+	const searchValue = searchKey === undefined ? '' : String((filters as Record<string, unknown>)[searchKey] ?? '');
+	const handleSearchChange = useCallback(
+		(value: string): void => {
+			if (searchKey !== undefined) void set({ [searchKey]: value || undefined });
+		},
+		[searchKey, set],
+	);
+	// Memoized so the mobile header (a second mount of the same search slot)
+	// can skip a render when neither the value nor the handler changed.
+	const searchBox = useMemo(
+		() =>
+			searchKey === undefined
+				? undefined
+				: { value: searchValue, onChange: handleSearchChange, placeholder: searchPlaceholder },
+		[searchKey, searchValue, handleSearchChange, searchPlaceholder],
+	);
+	const openSheet = useCallback(() => setSheetOpen(true), []);
 
 	useEffect(() => {
 		if (autoFetch === false) return;
@@ -420,8 +441,6 @@ export function StyledListingLayout<TFilters = unknown>({
 	// Filters button so a collapsed filter set still signals it's active.
 	const activeFilterCount = engine.filters.activeKeys(filters).length;
 
-	const resultCount = results.total ?? results.items.length;
-
 	return (
 		<div className={className ? `rle-app ${className}` : 'rle-app'}>
 			<div className="rle-filter-bar">
@@ -444,7 +463,7 @@ export function StyledListingLayout<TFilters = unknown>({
 
 			<MobileHeader
 				search={searchBox}
-				onFiltersClick={() => setSheetOpen(true)}
+				onFiltersClick={openSheet}
 				filterCount={activeFilterCount}
 				action={mobileAction}
 			/>
@@ -495,7 +514,7 @@ export function StyledListingLayout<TFilters = unknown>({
 							apply: handleApplyDraft,
 							clear: handleClearAll,
 							resultCount,
-							loading: pagination.loading,
+							loading,
 						})
 					) : (
 						<>
@@ -505,10 +524,10 @@ export function StyledListingLayout<TFilters = unknown>({
 							<button
 								type="button"
 								className="rle-btn rle-btn--primary rle-sheet__apply"
-								disabled={pagination.loading}
+								disabled={loading}
 								onClick={handleApplyDraft}
 							>
-								{pagination.loading ? (
+								{loading ? (
 									<span className="rle-spinner" aria-label="Updating results" />
 								) : (
 									`Show ${resultCount} results`

@@ -7,7 +7,8 @@ import type { Bounds, LatLng, MapHandle, RenderedLayer, Unsubscribe } from '~/in
 
 import { FallbackPopup, useListingComponents } from '../components-provider';
 import { useListing } from '../hooks/use-listing';
-import { useListingState } from '../hooks/use-listing-state';
+import { useListingSelector } from '../hooks/use-listing-selector';
+import type { useListingState } from '../hooks/use-listing-state';
 
 // "Give me everything" bounds for the one-time initial points load (see the
 // class doc comment's "Auto-fit" section) -- every adapter that filters
@@ -259,7 +260,16 @@ export interface IListingMapProps {
 export function ListingMap(props: IListingMapProps) {
   const { center, zoom, fallback, mapControls, onMapReady } = props;
   const engine = useListing();
-  const state = useListingState();
+  // The four values this component draws from, each its own subscription: a
+  // filter write or a results load is none of the map's business, and a
+  // re-render here re-runs every effect's dependency check below.
+  type State = ReturnType<typeof useListingState>;
+  const state = {
+    hovered: useListingSelector<State['hovered']>(s => s.hovered),
+    layers: useListingSelector<State['layers']>(s => s.layers),
+    points: useListingSelector<State['points']>(s => s.points),
+    selection: useListingSelector<State['selection']>(s => s.selection),
+  };
 
   // Latest `onMapReady` reachable from the mount effect WITHOUT joining its
   // dependency list: an inline consumer closure changes identity every render,
@@ -285,7 +295,9 @@ export function ListingMap(props: IListingMapProps) {
   const userMovedRef = useRef(false);
   const autoFitInProgressRef = useRef(false);
 
-  const provider = engine.map;
+  // Subscribed, not read once: a provider can be attached after this mounted
+  // (`engine.attachMap`), which announces itself through a store write.
+  const provider = useListingSelector(() => engine.map);
 
   // Live layer renders by dataset id -- the unsubscribe each `provider.renderLayer`
   // call returned. Kept in a ref, not effect-local, so a points reload hands the

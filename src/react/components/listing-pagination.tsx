@@ -3,7 +3,8 @@
 import { PaginationMode } from '~/enums';
 
 import { useListing } from '../hooks/use-listing';
-import { useListingState } from '../hooks/use-listing-state';
+import { useListingSelector } from '../hooks/use-listing-selector';
+import type { useListingState } from '../hooks/use-listing-state';
 
 /** Windowing gap placeholder rendered as an ellipsis between page numbers. */
 const GAP = 'gap';
@@ -57,7 +58,9 @@ function buildPageItems(totalPages: number, currentPage: number): (number | type
  */
 export function ListingPagination() {
   const engine = useListing();
-  const { results, pagination } = useListingState();
+  type State = ReturnType<typeof useListingState>;
+  const results = useListingSelector<State['results']>(state => state.results);
+  const pagination = useListingSelector<State['pagination']>(state => state.pagination);
 
   if (pagination.mode === PaginationMode.Infinite) {
     if (results.nextCursor == null) return null;

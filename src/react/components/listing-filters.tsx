@@ -1,5 +1,9 @@
 'use client';
 
+import { memo, useCallback, type ComponentType } from 'react';
+
+import { plainEqual } from '~/core/plain-equal';
+
 import { useListingComponents } from '../components-provider';
 import { useListing } from '../hooks/use-listing';
 import { useListingFilters } from '../hooks/use-listing-filters';
@@ -41,6 +45,40 @@ export interface IListingFiltersProps<TFilters = unknown> {
   /** Paired with `draft` to enable deferred mode -- see `draft`'s doc. */
   onDraftChange?: (params: Partial<TFilters>) => void;
 }
+
+interface IFilterControlProps {
+  value: unknown;
+  onChange: (value: unknown) => void;
+}
+
+interface IFilterGroupControlProps {
+  Control: ComponentType<IFilterControlProps>;
+  value: unknown;
+  /** The filter definition; its `toParams` maps the control's value to the params to write. */
+  def: { toParams: (value: never) => unknown };
+  /** Where a change goes: the caller's draft in deferred mode, the engine otherwise. */
+  write: (params: unknown) => void;
+}
+
+/**
+ * One filter's control, re-rendered only when ITS value changes.
+ *
+ * The panel re-renders on every filters write, and most writes are not about
+ * most controls -- a map settle rewrites the viewport keys and nothing else,
+ * yet used to re-render every control on the bar. `value` is compared
+ * structurally because `fromParams` may build a fresh object each call.
+ */
+const FilterControl = memo(
+  function FilterControl({ Control, value, def, write }: IFilterGroupControlProps) {
+    const onChange = useCallback((next: unknown) => write(def.toParams(next as never)), [def, write]);
+    return <Control value={value} onChange={onChange} />;
+  },
+  (previous, next) =>
+    previous.Control === next.Control &&
+    previous.def === next.def &&
+    previous.write === next.write &&
+    plainEqual(previous.value, next.value),
+);
 
 /**
  * Structure-only filter panel: one control per `engine.filters.list()` entry,
@@ -96,6 +134,11 @@ export function ListingFilters<TFilters = unknown>({
   // `readonly`-typed) so both branches of this ternary agree on one type.
   const activeFilters = deferred ? (draft as TFilters) : (filters as TFilters);
 
+  // One writer for every control, stable while the mode is: a control's
+  // `onChange` then only changes identity when its own inputs do.
+  const applyLive = useCallback((params: unknown) => void engine.applyFilters(params as Partial<TFilters>), [engine]);
+  const write = deferred ? (onDraftChange as (params: unknown) => void) : applyLive;
+
   return (
     <FilterPanel>
       <div className={className ?? 'space-y-5'}>
@@ -104,17 +147,16 @@ export function ListingFilters<TFilters = unknown>({
             return <div key={def.key} data-filter={def.key} className={groupClassName} />;
           }
 
-          const Control = def.render;
           return (
             <div key={def.key} className={groupClassName}>
               {def.label && !hideLabels && (
                 <div className="mb-1.5 text-[13px] font-medium text-foreground">{def.label}</div>
               )}
-              <Control
+              <FilterControl
+                Control={def.render as ComponentType<IFilterControlProps>}
                 value={def.fromParams(activeFilters)}
-                onChange={value =>
-                  deferred ? onDraftChange!(def.toParams(value)) : void engine.applyFilters(def.toParams(value))
-                }
+                def={def}
+                write={write}
               />
             </div>
           );

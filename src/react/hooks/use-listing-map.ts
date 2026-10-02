@@ -1,7 +1,8 @@
 'use client';
 
 import { useListingActions } from './use-listing-actions';
-import { useListingState } from './use-listing-state';
+import { useListingSelector } from './use-listing-selector';
+import type { useListingState } from './use-listing-state';
 
 /**
  * Map-facing slice of listing state (bounds, per-dataset points, hovered
@@ -14,12 +15,17 @@ import { useListingState } from './use-listing-state';
  * `useListingActions()` instead, which subscribes to nothing.
  */
 export function useListingMap() {
-  const state = useListingState();
+  // One subscription per value handed out, so this re-renders for the map's
+  // own state and not for filters, results or a selection.
+  type State = ReturnType<typeof useListingState>;
+  const bounds = useListingSelector<State['bounds']>(state => state.bounds);
+  const hovered = useListingSelector<State['hovered']>(state => state.hovered);
+  const points = useListingSelector<State['points']>(state => state.points);
 
   return {
-    bounds: state.bounds,
-    hovered: state.hovered,
-    points: state.points,
+    bounds,
+    hovered,
+    points,
     ...useListingActions(),
   };
 }

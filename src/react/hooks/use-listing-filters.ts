@@ -3,7 +3,8 @@
 import { useCallback } from 'react';
 
 import { useListing } from './use-listing';
-import { useListingState } from './use-listing-state';
+import { useListingSelector } from './use-listing-selector';
+import type { useListingState } from './use-listing-state';
 
 /**
  * Current filters plus two ways to mutate them, both proxying to
@@ -16,7 +17,10 @@ import { useListingState } from './use-listing-state';
  */
 export function useListingFilters<TFilters = unknown>() {
   const engine = useListing<unknown, TFilters>();
-  const state = useListingState<unknown, TFilters>();
+  // The filters slice only: a component that reads filters has no reason to
+  // re-render because the map moved or a card was hovered.
+  type Filters = ReturnType<typeof useListingState<unknown, TFilters>>['filters'];
+  const filters = useListingSelector<Filters, unknown, TFilters>(state => state.filters);
 
   const set = useCallback((patch: Partial<TFilters>) => engine.applyFilters(patch), [engine]);
 
@@ -30,5 +34,5 @@ export function useListingFilters<TFilters = unknown>() {
     [engine],
   );
 
-  return { filters: state.filters, set, setField };
+  return { filters, set, setField };
 }

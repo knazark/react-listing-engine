@@ -1,5 +1,6 @@
 import type { Bounds, EntityId, MapPoint, Page, Unsubscribe } from '~/interfaces';
 import { PaginationMode } from '~/enums';
+import { plainEqual } from './plain-equal';
 
 export interface ListingState<TEntity, TFilters> {
   filters: TFilters;
@@ -95,7 +96,11 @@ export class ListingStore<TEntity, TFilters> {
 
   setResults(page: Page<TEntity>): void {
     this.setState({
-      results: { items: [...page.items], nextCursor: page.nextCursor, total: page.total },
+      results: {
+        items: shareItems(this.state.results.items, page.items),
+        nextCursor: page.nextCursor,
+        total: page.total,
+      },
       // Every commit path flips `loaded` here, at the chokepoint, rather than
       // in each engine query method — a commit IS the definition of loaded.
       pagination: { ...this.state.pagination, loaded: true },
@@ -180,4 +185,26 @@ export class ListingStore<TEntity, TFilters> {
     Object.freeze(state.points);
     return Object.freeze(state);
   }
+}
+
+function itemId(item: unknown): unknown {
+  return item && typeof item === 'object' && 'id' in item ? (item as { id?: unknown }).id : undefined;
+}
+
+// A refetch usually returns mostly the SAME entities as fresh objects (a map
+// pan that keeps most listings in view). Handing the previous object back for
+// an entity whose data did not change keeps its identity stable, so a memoized
+// card for it does not re-render. Items are matched by `id`; one without an id
+// is always taken as new.
+function shareItems<T>(previous: ReadonlyArray<T>, next: ReadonlyArray<T>): T[] {
+  const byId = new Map<unknown, T>();
+  for (const item of previous) {
+    const id = itemId(item);
+    if (id !== undefined) byId.set(id, item);
+  }
+  return next.map(item => {
+    const id = itemId(item);
+    const old = id === undefined ? undefined : byId.get(id);
+    return old !== undefined && plainEqual(old, item) ? old : item;
+  });
 }
