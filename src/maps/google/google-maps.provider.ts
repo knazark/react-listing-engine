@@ -282,6 +282,13 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
   class HtmlMarkerOverlay extends google.maps.OverlayView implements HtmlMarker {
     private div: HTMLDivElement | null = null;
     private clickHandler: (() => void) | undefined;
+    // `position` as the SDK's own type, built once per anchor rather than once per `draw()` --
+    // a vector map calls `draw()` on every frame of a pan, for every marker.
+    private latLng: google.maps.LatLng | null = null;
+    // The pixel the container was last drawn at, so a `draw()` that lands on the same pixel
+    // writes nothing.
+    private drawnX: number | null = null;
+    private drawnY: number | null = null;
 
     constructor(
       readonly markerId: EntityId,
@@ -322,6 +329,7 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
     /** Re-anchors the overlay at a new coordinate and redraws it there. */
     updatePosition(position: LatLng): void {
       this.position = position;
+      this.latLng = null;
       this.draw();
     }
 
@@ -332,6 +340,12 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
     override onAdd(): void {
       const div = document.createElement('div');
       div.style.position = 'absolute';
+      // Pinned to the pane's origin and moved ONLY by `transform` (see `draw`), on its own
+      // compositor layer: a vector map redraws every marker on every frame of a pan, and moving
+      // one with `left`/`top` costs a layout and a repaint of every marker per frame.
+      div.style.left = '0px';
+      div.style.top = '0px';
+      div.style.willChange = 'transform';
       // Center the content on the coordinate rather than anchoring its top-left corner there.
       div.style.transform = 'translate(-50%, -50%)';
       // Wired unconditionally and read through `onClick` at click time: a reconciling re-render
@@ -369,16 +383,21 @@ function getHtmlMarkerCtor(): HtmlMarkerCtor {
       if (!this.div) return;
       const projection = this.getProjection();
       if (!projection) return;
-      const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(this.position.lat, this.position.lng));
+      this.latLng ??= new google.maps.LatLng(this.position.lat, this.position.lng);
+      const point = projection.fromLatLngToDivPixel(this.latLng);
       if (!point) return;
-      this.div.style.left = `${point.x}px`;
-      this.div.style.top = `${point.y}px`;
+      if (point.x === this.drawnX && point.y === this.drawnY) return;
+      this.drawnX = point.x;
+      this.drawnY = point.y;
+      this.div.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) translate(-50%, -50%)`;
     }
 
     override onRemove(): void {
       const div = this.div;
       this.div?.remove();
       this.div = null;
+      this.drawnX = null;
+      this.drawnY = null;
       if (div) this.lifecycle.onContainerRemove(div);
     }
   }

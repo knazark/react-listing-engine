@@ -1588,7 +1588,7 @@ describe('googleProvider', () => {
         const handle = await provider.mount(document.createElement('div'), {});
         provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }] }));
         const container = createdOverlays[0].pane.firstElementChild as HTMLElement;
-        expect(container.style.left).toBe('5px');
+        expect(container.style.transform).toBe('translate3d(5px, 7px, 0) translate(-50%, -50%)');
 
         // The fake projection answers with `divPixelPoint` whatever the lat/lng, so a
         // changed answer stands in for the new coordinate's projection.
@@ -1596,8 +1596,24 @@ describe('googleProvider', () => {
         provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(3, 3) }] }));
 
         expect(createdOverlays).toHaveLength(1);
-        expect(container.style.left).toBe('50px');
-        expect(container.style.top).toBe('60px');
+        expect(container.style.transform).toBe('translate3d(50px, 60px, 0) translate(-50%, -50%)');
+      });
+
+      it('moves a marker with a compositor-only transform, never with layout properties', async () => {
+        const provider = googleProvider({ apiKey: 'k', styles });
+        const handle = await provider.mount(document.createElement('div'), {});
+        provider.renderLayer(handle, makeLayer({ markers: [{ id: 1, position: at(1, 1) }] }));
+        const overlay = createdOverlays[0];
+        const container = overlay.pane.firstElementChild as HTMLElement;
+        expect(container.style.willChange).toBe('transform');
+
+        // A pan: the map calls draw() on every frame with a new projection.
+        divPixelPoint = { x: 20, y: 30 };
+        (overlay as unknown as { draw(): void }).draw();
+
+        expect(container.style.transform).toBe('translate3d(20px, 30px, 0) translate(-50%, -50%)');
+        expect(container.style.left).toBe('0px');
+        expect(container.style.top).toBe('0px');
       });
 
       it("swaps a kept marker's content when its element changed, and keeps the existing node when the new one is equivalent", async () => {

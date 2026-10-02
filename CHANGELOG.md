@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.12.10
+
+### Patch Changes
+
+- Move overlay (HTML) markers with a compositor-only `transform` instead of `left`/`top`. A vector map redraws every marker on every frame of a pan, so each frame used to cost a layout and a repaint of every marker, and panning a map with many markers stuttered on phones. Marker containers now sit on their own compositor layer (`will-change: transform`); their on-screen position is unchanged. Advanced-marker mode is unchanged.
+
 ## 0.12.7
 
 ### Patch Changes
