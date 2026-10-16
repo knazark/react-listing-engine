@@ -72,6 +72,13 @@ export interface IStyledListingLayoutProps<TFilters = unknown> {
 	 * if its pins should go too.
 	 */
 	resultsSlot?: ReactNode;
+	/**
+	 * Rendered INSIDE the results column, after the pagination, so it scrolls
+	 * with the list and sits beside the map: an internal-links tail, related
+	 * searches, editorial copy. Not rendered when `resultsSlot` replaces the
+	 * column -- the slot owns the whole column by contract.
+	 */
+	resultsFooter?: ReactNode;
 	/** Optional mobile-header action button (e.g. "Save"), forwarded verbatim to `<MobileHeader action={...} />`. Omit to render just the search + Filters button there. */
 	mobileAction?: IBottomNavAction;
 	/**
@@ -283,6 +290,7 @@ export function StyledListingLayout<TFilters = unknown>({
 	search,
 	filterBarStart,
 	resultsSlot,
+	resultsFooter,
 	toolbarEnd,
 	mobileAction,
 	autoFetch = true,
@@ -481,6 +489,7 @@ export function StyledListingLayout<TFilters = unknown>({
 							</div>
 							<ListingList className="rle-list-grid" />
 							<ListingPagination />
+							{resultsFooter != null && <div className="rle-list-footer">{resultsFooter}</div>}
 						</>
 					)}
 				</div>

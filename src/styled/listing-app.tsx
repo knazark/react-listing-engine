@@ -115,6 +115,8 @@ export interface ListingAppProps<TFilters> {
 	filterBarStart?: IStyledListingLayoutProps['filterBarStart'];
 	/** Replaces the entire results column -- see `IStyledListingLayoutProps['resultsSlot']`. */
 	resultsSlot?: IStyledListingLayoutProps['resultsSlot'];
+	/** Rendered under the pagination inside the results column -- see `IStyledListingLayoutProps['resultsFooter']`. */
+	resultsFooter?: IStyledListingLayoutProps['resultsFooter'];
 	toolbarEnd?: IStyledListingLayoutProps['toolbarEnd'];
 	/**
 	 * Rendered as an absolutely-positioned overlay floating over the map (e.g. zoom/fullscreen
@@ -279,6 +281,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 		search,
 		filterBarStart,
 		resultsSlot,
+		resultsFooter,
 		toolbarEnd,
 		mapControls,
 		onMapReady,
@@ -318,6 +321,7 @@ export function ListingApp<TEntity, TFilters>(props: ListingAppProps<TFilters>) 
 					search={search}
 					filterBarStart={filterBarStart}
 					resultsSlot={resultsSlot}
+					resultsFooter={resultsFooter}
 					toolbarEnd={toolbarEnd}
 					mobileAction={mobileAction}
 					// Seeded results ARE the first page, so fetching it again on mount
