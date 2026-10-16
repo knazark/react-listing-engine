@@ -1,5 +1,11 @@
 # react-listing-engine
 
+## 0.12.12
+
+### Patch Changes
+
+- Add a `resultsFooter` slot to the styled layout and `ListingApp`: content rendered inside the results column after the pagination (an internal-links tail, related searches), so it scrolls with the list and sits beside the map. It is omitted when `resultsSlot` replaces the column.
+
 ## 0.12.11
 
 ### Patch Changes
